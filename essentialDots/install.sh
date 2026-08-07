@@ -15,7 +15,7 @@ DEFAULT_NODE_VERSION="${DEFAULT_NODE_VERSION:-22.7.0}"
 PYENV_PYTHON_VERSIONS="${PYENV_PYTHON_VERSIONS:-3.10.19 3.11.14 3.12.12}"
 PYENV_GLOBAL_VERSIONS="${PYENV_GLOBAL_VERSIONS:-3.12.12 3.11.14 3.10.19 system}"
 STOW_TARGET="${HOME}"
-STOW_PACKAGES=(zsh local git python aerospace borders tmux btop superfile)
+STOW_PACKAGES=(zsh local git python aerospace borders btop)
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -375,8 +375,7 @@ mkdir -p \
   "${XDG_DATA_HOME}" \
   "${XDG_STATE_HOME}" \
   "${XDG_CACHE_HOME}/zsh" \
-  "${HOME}/.local/bin" \
-  "${HOME}/.tmux/plugins"
+  "${HOME}/.local/bin"
 ui_done "Directories are ready"
 
 if [[ -x /opt/homebrew/bin/brew ]]; then
@@ -412,9 +411,8 @@ ui_stage "Ensuring configured Python runtimes"
 install_pyenv_pythons
 ui_done "Python runtimes are ready"
 
-ui_stage "Ensuring shell and tmux dependencies"
+ui_stage "Ensuring shell dependencies"
 clone_or_update "https://github.com/ohmyzsh/ohmyzsh.git" "${XDG_CONFIG_HOME}/oh-my-zsh"
-clone_or_update "https://github.com/tmux-plugins/tpm" "${HOME}/.tmux/plugins/tpm"
 ui_done "External Git dependencies are ready"
 
 ui_stage "Migrating and restowing managed symlinks"
@@ -445,6 +443,5 @@ Dotfiles installed.
 Recommended manual follow-up:
   1. Restart your terminal.
   2. Open AeroSpace once and grant macOS permissions if prompted.
-  3. If you use tmux plugins, press prefix + I inside tmux to install them.
-  4. Install optional toolsDots components directly or through intelliDots/install.sh.
+  3. Install optional toolsDots components directly or through intelliDots/install.sh.
 EOF

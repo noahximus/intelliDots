@@ -19,8 +19,6 @@ brew "readline" # Command-line editing library used by pyenv-built Python.
 brew "ripgrep" # Very fast text search used by shell and repository workflows.
 brew "sqlite" # SQLite support used by pyenv-built Python.
 brew "stow" # Symlink manager used to install these dotfiles.
-brew "superfile" # Terminal file manager.
-brew "tmux" # Terminal multiplexer configured by the tmux dotfiles.
 brew "xz" # Compression library used when building Python versions with pyenv.
 brew "zsh-autosuggestions" # Zsh plugin that suggests commands from shell history.
 brew "zsh-fast-syntax-highlighting" # Zsh plugin that highlights commands as you type.

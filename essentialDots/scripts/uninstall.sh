@@ -7,7 +7,7 @@ DOTFILES_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
 PIPXFILE="${DOTFILES_DIR}/Pipxfile"
 STOW_TARGET="${HOME}"
-STOW_PACKAGES=(zsh local git python aerospace borders tmux btop superfile)
+STOW_PACKAGES=(zsh local git python aerospace borders btop)
 
 assume_yes=false
 dry_run=false
@@ -213,16 +213,12 @@ remove_git_checkout() {
 remove_generated_data() {
   [[ "${remove_data}" == true ]] || return 0
 
-  remove_git_checkout "${HOME}/.tmux/plugins/tpm" "https://github.com/tmux-plugins/tpm"
   remove_git_checkout "${HOME}/.config/oh-my-zsh" "https://github.com/ohmyzsh/ohmyzsh"
-  remove_path "${HOME}/.config/tmux/theme.conf"
   remove_path "${HOME}/.config/zsh/apps/themerc"
   remove_path "${HOME}/.config/.pyenv"
   remove_path "${HOME}/.config/nvm"
   remove_path "${XDG_STATE_HOME:-${HOME}/.local/state}/essentialDots/stow-root"
 
-  run rmdir "${HOME}/.tmux/plugins" 2>/dev/null || true
-  run rmdir "${HOME}/.tmux" 2>/dev/null || true
   run rmdir "${XDG_STATE_HOME:-${HOME}/.local/state}/essentialDots" 2>/dev/null || true
 }
 

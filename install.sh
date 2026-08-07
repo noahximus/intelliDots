@@ -28,9 +28,9 @@ usage() {
 Usage: ./install.sh [options]
 
 Installs the components selected in features.yaml. Nodes marked `default:
-true` (essentialDots, myITerm, myNvim) install unless narrowed with --only;
---all additionally installs every optional node (myVSCode, myLocalLLM,
-myOpenCode).
+true` (essentialDots, iTerm, nvim, tmux, superfile) install unless narrowed
+with --only; --all additionally installs every optional node (vsCode,
+localLLM, opencode).
 
 Options:
   --essential           Install each component's essential profile (default).
@@ -44,7 +44,7 @@ Options:
   --no-bootstrap        Do not install Homebrew/yq when missing.
   --macos-defaults      Apply tracked macOS preferences through essentialDots.
   --pipx                Install essentialDots' Pipxfile applications with pipx.
-  --with-turbo-fieldfare Also install myLocalLLM's TurboFieldfare backend.
+  --with-turbo-fieldfare Also install localLLM's TurboFieldfare backend.
   --continue-on-error   Continue after a node fails (default).
   --stop-on-error       Stop at the first failing node instead.
   --dry-run             Show what would run without changing anything.
@@ -149,10 +149,10 @@ run_node() {
     [[ "${apply_macos_defaults}" == true ]] && install_args+=(--macos-defaults)
     [[ "${pipx}" == true ]] && install_args+=(--pipx)
   fi
-  # myLocalLLM has no packages of its own without an explicit backend flag;
+  # localLLM has no packages of its own without an explicit backend flag;
   # local-llm (llama.cpp) is on by default, with TurboFieldfare staying
   # strictly opt-in given its size and hardware requirements.
-  if [[ "${id}" == "toolsDots.aiTools.myLocalLLM" ]]; then
+  if [[ "${id}" == "toolsDots.aiTools.localLLM" ]]; then
     install_args+=(--with-local-llm)
     [[ "${with_turbo_fieldfare}" == true ]] && install_args+=(--with-turbo-fieldfare)
   fi

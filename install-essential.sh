@@ -21,7 +21,7 @@ install-everything.sh for the same fixed choice at the full profile.
 
 Options (forwarded to install.sh):
   --no-bootstrap          Do not install Homebrew/yq when missing.
-  --with-turbo-fieldfare  Also install myLocalLLM's TurboFieldfare backend.
+  --with-turbo-fieldfare  Also install localLLM's TurboFieldfare backend.
   --continue-on-error     Continue after a node fails (default).
   --stop-on-error         Stop at the first failing node instead.
   --dry-run               Preview every action without changing anything.

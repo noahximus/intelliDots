@@ -12,15 +12,17 @@ intelliDots/
   install.sh  uninstall.sh  status.sh  update.sh  bootstrap.sh  publish-configs.sh
   install-essential.sh     # fixed choice: every node, essential profile
   install-everything.sh    # fixed choice: every node, full profile
-  essentialDots/           # core shell, Git, tmux, macOS tools, general config
+  essentialDots/           # core shell, Git, macOS tools, general config
   toolsDots/
     devTools/
-      myITerm/              # iTerm2 application, profiles, colors, preferences
-      myNvim/                # Neovim, LazyVim, plugins, editor tooling
-      myVSCode/              # VS Code application and tracked extensions
+      iTerm/              # iTerm2 application, profiles, colors, preferences
+      nvim/                # Neovim, LazyVim, plugins, editor tooling
+      vsCode/              # VS Code application and tracked extensions
+      tmux/                # tmux, its config, and the tpm plugin manager
+      superfile/            # Superfile terminal file manager and themes
     aiTools/
-      myLocalLLM/            # llama.cpp runtime, models, wrapper
-      myOpenCode/            # OpenCode and optional local-model bridge
+      localLLM/            # llama.cpp runtime, models, wrapper
+      opencode/            # OpenCode and optional local-model bridge
 ```
 
 Each node under `essentialDots`/`toolsDots/*` is independently installable --
@@ -34,14 +36,14 @@ its own packages, files, state, and documentation.
 ```
 
 Installs the nodes marked `default: true` in `features.yaml` (`essentialDots`,
-`myITerm`, `myNvim`) at the essential profile. Optional nodes (`myVSCode`,
-`myLocalLLM`, `myOpenCode`) are opt-in:
+`iTerm`, `nvim`, `tmux`, `superfile`) at the essential profile. Optional nodes
+(`vsCode`, `localLLM`, `opencode`) are opt-in:
 
 ```bash
-./install.sh --only toolsDots.aiTools.myLocalLLM
+./install.sh --only toolsDots.aiTools.localLLM
 ./install.sh --all                    # every node, not just the defaults
 ./install.sh --list                   # show every node and its default flag
-./install.sh --skip toolsDots.devTools.myVSCode
+./install.sh --skip toolsDots.devTools.vsCode
 ./install.sh --dry-run
 ./install.sh --full
 ```
@@ -75,8 +77,8 @@ nodes:
   - id: essentialDots
     path: essentialDots
     default: true
-  - id: toolsDots.aiTools.myLocalLLM
-    path: toolsDots/aiTools/myLocalLLM
+  - id: toolsDots.aiTools.localLLM
+    path: toolsDots/aiTools/localLLM
     default: false
     nvim_integration: codecompanion
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
@@ -87,21 +89,21 @@ bottom-to-top. `nvim_integration*` fields are descriptive only -- see below.
 
 ## AI tools automatically customize Neovim (and skip cleanly without it)
 
-Installing `myLocalLLM` or `myOpenCode` enables matching Neovim customization
--- CodeCompanion for `myLocalLLM`, terminal keymaps for `myOpenCode` -- with
+Installing `localLLM` or `opencode` enables matching Neovim customization
+-- CodeCompanion for `localLLM`, terminal keymaps for `opencode` -- with
 no explicit wiring in `install.sh`. Each AI component stows a small Lua spec
-to a well-known path under `~/.local/share`, and the corresponding `myNvim`
+to a well-known path under `~/.local/share`, and the corresponding `nvim`
 plugin file checks for that file **at Neovim startup** (not at install time)
 and loads it if present:
 
-- `myLocalLLM` -> `~/.local/share/local-llm/integrations/codecompanion.lua`,
-  loaded by `myNvim`'s `plugins/codecompanion.lua`.
-- `myOpenCode` -> `~/.local/share/opencode/integrations/nvim-toggleterm.lua`,
-  loaded by `myNvim`'s `plugins/opencode.lua`.
+- `localLLM` -> `~/.local/share/local-llm/integrations/codecompanion.lua`,
+  loaded by `nvim`'s `plugins/codecompanion.lua`.
+- `opencode` -> `~/.local/share/opencode/integrations/nvim-toggleterm.lua`,
+  loaded by `nvim`'s `plugins/opencode.lua`.
 
 Because the check happens at Neovim startup rather than install time, install
-order never matters, and installing either AI tool without `myNvim` is always
-safe: the stowed file just sits unused on disk. Installing `myNvim` without
+order never matters, and installing either AI tool without `nvim` is always
+safe: the stowed file just sits unused on disk. Installing `nvim` without
 either AI tool is equally safe: both plugin files fall back to a default (or
 to contributing nothing) with no errors and no dead keymaps.
 

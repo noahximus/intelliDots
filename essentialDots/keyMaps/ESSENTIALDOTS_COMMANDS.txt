@@ -17,7 +17,7 @@ UNINSTALL
   ./scripts/uninstall.sh --full
 
 STOW PACKAGES
-  zsh local git python aerospace borders tmux btop superfile
+  zsh local git python aerospace borders btop
 
 PROJECT ENVIRONMENTS
   venv-here                    Create .venv with automatic direnv activation
@@ -26,8 +26,10 @@ PROJECT ENVIRONMENTS
   node-here --node 22.7.0
 
 OTHER INTELLIDOTS COMPONENTS
-  toolsDots/devTools/myITerm
-  toolsDots/devTools/myNvim
-  toolsDots/devTools/myVSCode
-  toolsDots/aiTools/myLocalLLM
-  toolsDots/aiTools/myOpenCode
+  toolsDots/devTools/iTerm
+  toolsDots/devTools/nvim
+  toolsDots/devTools/vsCode
+  toolsDots/devTools/tmux
+  toolsDots/devTools/superfile
+  toolsDots/aiTools/localLLM
+  toolsDots/aiTools/opencode

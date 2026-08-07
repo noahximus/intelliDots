@@ -1,8 +1,8 @@
 # essentialDots
 
 Core personal macOS dotfiles managed with GNU Stow. Part of `intelliDots`.
-Application-specific iTerm, Neovim, VS Code, local-LLM, and OpenCode
-configuration live in their own `toolsDots` components.
+Application-specific iTerm, Neovim, VS Code, tmux, Superfile, local-LLM, and
+OpenCode configuration live in their own `toolsDots` components.
 
 ## Scope
 
@@ -10,13 +10,14 @@ This component owns:
 
 - Zsh and Powerlevel10k shell configuration
 - Git configuration and global ignore rules
-- tmux, AeroSpace, borders, btop, and Superfile configuration
+- AeroSpace, borders, and btop configuration
 - Python/IPython configuration
 - general scripts under `~/.local/bin`
 - shared macOS defaults and bootstrap helpers
 
 It deliberately does **not** install or configure iTerm2, Neovim/LazyVim, VS
-Code, local LLM services, or OpenCode -- those live under `toolsDots`.
+Code, tmux, Superfile, local LLM services, or OpenCode -- those live under
+`toolsDots`.
 
 ## Install
 
@@ -78,7 +79,7 @@ Examples:
 ./install.sh --no-brew --macos-defaults
 ```
 
-VS Code and its extensions are a separate component: `toolsDots/devTools/myVSCode`.
+VS Code and its extensions are a separate component: `toolsDots/devTools/vsCode`.
 
 The macOS defaults profile also configures TG Pro for conservative monitoring:
 TG Pro launches at login, shows the highest CPU temperature in Celsius, checks
@@ -91,7 +92,7 @@ Quit and reopen TG Pro after applying the defaults if it was already running.
 The installer manages these packages against `$HOME`:
 
 ```text
-zsh local git python aerospace borders tmux btop superfile
+zsh local git python aerospace borders btop
 ```
 
 The checkout location is recorded in
@@ -140,7 +141,7 @@ resources belong to their own `toolsDots` components.
 ## Command reference
 
 See [`keyMaps/ESSENTIALDOTS_COMMANDS.md`](keyMaps/ESSENTIALDOTS_COMMANDS.md)
-for the core installer, maintenance, Stow, shell, tmux, and macOS commands.
+for the core installer, maintenance, Stow, shell, and macOS commands.
 
 ## Project environment helpers
 

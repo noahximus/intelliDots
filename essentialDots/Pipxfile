@@ -7,4 +7,4 @@
 # Blank lines and comments are ignored.
 
 # Add general-purpose Python CLI applications here. Local-LLM tooling lives in
-# the standalone myLocalLLM project.
+# the localLLM component.

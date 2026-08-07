@@ -25,7 +25,7 @@
 ## GNU Stow
 
 ```bash
-stow --dir="$PWD" --target="$HOME" --restow zsh local git python aerospace borders tmux btop superfile
+stow --dir="$PWD" --target="$HOME" --restow zsh local git python aerospace borders btop
 stow --dir="$PWD" --target="$HOME" --delete PACKAGE
 ```
 
@@ -46,25 +46,20 @@ node-here                    # create .nvmrc and direnv-driven NVM switching
 node-here --node 22.7.0
 ```
 
-## tmux
-
-```bash
-tmux
-tmux source-file ~/.config/tmux/tmux.conf
-```
-
-Inside tmux, press `prefix + I` to install plugins and `prefix + U` to update
-them.
-
 ## Other intelliDots components
 
 The following are separate components under `intelliDots`, installed via the
 top-level `install.sh` (or standalone from their own directory):
 
 ```text
-toolsDots/devTools/myITerm
-toolsDots/devTools/myNvim
-toolsDots/devTools/myVSCode
-toolsDots/aiTools/myLocalLLM
-toolsDots/aiTools/myOpenCode
+toolsDots/devTools/iTerm
+toolsDots/devTools/nvim
+toolsDots/devTools/vsCode
+toolsDots/devTools/tmux
+toolsDots/devTools/superfile
+toolsDots/aiTools/localLLM
+toolsDots/aiTools/opencode
 ```
+
+tmux usage (`tmux`, `prefix + I` to install plugins) is documented in
+[`toolsDots/devTools/tmux/README.md`](../../toolsDots/devTools/tmux/README.md).
