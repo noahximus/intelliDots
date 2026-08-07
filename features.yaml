@@ -72,7 +72,7 @@ nodes:
       with-local-llm: true
       # Swift/Metal Gemma runtime. Opt-in: large (~14GB model) and needs
       # macOS 26 + Xcode 26 + Apple Silicon.
-      with-turbo-fieldfare: false
+      with-turbo-fieldfare: true
     nvim_integration: codecompanion
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
 
