@@ -2,8 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="$(cd "${PROJECT_DIR}/../../.." && pwd)/features.yaml"
+NODE_ID="toolsDots.devTools.vsCode"
 BREWFILE="${PROJECT_DIR}/Brewfile-essential"
-EXTENSIONSFILE="${PROJECT_DIR}/VSCodeExtensions"
+EXTENSIONSFILE=""
 run_brew=true
 run_extensions=true
 dry_run=false
@@ -16,11 +18,15 @@ Installs VS Code and the tracked extension set. The essential Brewfile is the
 default; --full is accepted for a consistent component interface and
 currently installs the same package set.
 
-VSCodeExtensions format:
+By default, extensions come from this node's `extensions` list in
+features.yaml (../../../features.yaml) -- comment out or delete a line
+there to skip installing that one extension. --extensionsfile overrides
+that with a flat file instead:
+
   publisher.extension-id
   publisher.extension-id # optional comment
 
-Blank lines and comments are ignored.
+Blank lines and comments are ignored in that file format.
 EOF
 }
 
@@ -61,14 +67,25 @@ trim() {
   printf '%s\n' "${value}"
 }
 
+# Reads the tracked extension list: from --extensionsfile if given (a flat
+# "publisher.id # comment" file), otherwise from this node's `extensions`
+# array in features.yaml -- commenting out a line there is enough to skip it.
 read_extensions() {
-  local raw line
-  while IFS= read -r raw || [[ -n "${raw}" ]]; do
-    line="${raw%%#*}"
-    line="$(trim "${line}")"
-    [[ -n "${line}" ]] || continue
-    printf '%s\n' "${line}"
-  done < "${EXTENSIONSFILE}"
+  if [[ -n "${EXTENSIONSFILE}" ]]; then
+    [[ -f "${EXTENSIONSFILE}" ]] || { echo "Extensions file not found: ${EXTENSIONSFILE}" >&2; exit 1; }
+    local raw line
+    while IFS= read -r raw || [[ -n "${raw}" ]]; do
+      line="${raw%%#*}"
+      line="$(trim "${line}")"
+      [[ -n "${line}" ]] || continue
+      printf '%s\n' "${line}"
+    done < "${EXTENSIONSFILE}"
+  else
+    command -v yq >/dev/null 2>&1 || { echo "yq is required to read extensions from features.yaml (brew install yq), or pass --extensionsfile." >&2; exit 1; }
+    command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
+    [[ -f "${MANIFEST}" ]] || { echo "Missing manifest: ${MANIFEST}" >&2; exit 1; }
+    yq -o=json ".nodes[] | select(.id == \"${NODE_ID}\") | .extensions // []" "${MANIFEST}" | jq -r '.[]'
+  fi
 }
 
 extension_installed() {
@@ -78,7 +95,6 @@ extension_installed() {
 if [[ "${dry_run}" == true ]]; then
   [[ "${run_brew}" == true ]] && echo "Would install ${BREWFILE}"
   if [[ "${run_extensions}" == true ]]; then
-    [[ -f "${EXTENSIONSFILE}" ]] || { echo "VSCodeExtensions manifest not found: ${EXTENSIONSFILE}" >&2; exit 1; }
     while IFS= read -r extension; do
       echo "Would ensure VS Code extension installed: ${extension}"
     done < <(read_extensions)
@@ -96,7 +112,6 @@ if [[ "${run_extensions}" == true ]]; then
     echo "The 'code' command is not on PATH. Install VS Code first, then run 'Shell Command: Install code command in PATH' from VS Code's command palette." >&2
     exit 1
   }
-  [[ -f "${EXTENSIONSFILE}" ]] || { echo "VSCodeExtensions manifest not found: ${EXTENSIONSFILE}" >&2; exit 1; }
   while IFS= read -r extension; do
     if extension_installed "${extension}"; then
       echo "Already installed: ${extension}"

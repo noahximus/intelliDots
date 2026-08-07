@@ -36,8 +36,11 @@ The installer Stows `~/.config/nvim`, synchronizes plugins to
 for the key and command reference.
 
 The installer also installs `@agentclientprotocol/codex-acp` globally with npm
-when `codex-acp` is missing. CodeCompanion uses it with ChatGPT authentication
-for online Codex. Skip only this dependency with `./install.sh --no-codex-acp`.
+when `codex-acp` is missing, as long as `codex-acp` is listed in this node's
+`extras` in `features.yaml` (`toolsDots.devTools.nvim`) -- comment out or
+delete that line to skip it without touching this script. CodeCompanion uses
+it with ChatGPT authentication for online Codex. `./install.sh --no-codex-acp`
+always skips it regardless of that list.
 
 After completing the Codex browser login when first prompted, select it inside
 Neovim with `:AIProviderUse codex`; verify with `:AIProviderStatus`, then open a

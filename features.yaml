@@ -21,6 +21,10 @@
 # Install order between the two components never matters, and installing
 # either one without nvim is always safe (the stowed file just sits
 # unused).
+#
+# `extensions` (vsCode) and `extras` (nvim) are plain lists read directly by
+# that node's own install.sh -- comment out (or delete) a line to opt out of
+# installing that one item; nothing else to edit.
 nodes:
   - id: essentialDots
     path: essentialDots
@@ -33,9 +37,23 @@ nodes:
 
   - id: toolsDots.devTools.nvim
     path: toolsDots/devTools/nvim
+    extras:
+      # @agentclientprotocol/codex-acp via npm; lets CodeCompanion use
+      # online Codex (ChatGPT auth). Comment out to skip.
+      - codex-acp
 
   - id: toolsDots.devTools.vsCode
     path: toolsDots/devTools/vsCode
+    extensions:
+      - ms-python.python # Python language support, debugging, and environment management.
+      - ms-python.vscode-pylance # Fast Python IntelliSense, type checking, and auto-imports.
+      - eamodio.gitlens # Inline git blame, history, and repository insights.
+      - vscodevim.vim # Vim modal-editing keybindings, matching nvim's Neovim workflow.
+      - esbenp.prettier-vscode # Opinionated code formatter for JS/TS/JSON/CSS/Markdown.
+      - dbaeumer.vscode-eslint # ESLint integration for JS/TS linting.
+      - anthropic.claude-code # Official Claude Code IDE integration (sidebar, inline diffs).
+      - openai.chatgpt # Official Codex coding agent IDE integration.
+      - Continue.continue # Open-source AI code agent; connects to local LLM backends (llama.cpp/Ollama-compatible) from localLLM.
 
   - id: toolsDots.devTools.tmux
     path: toolsDots/devTools/tmux

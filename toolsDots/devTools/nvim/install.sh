@@ -2,6 +2,8 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="$(cd "${PROJECT_DIR}/../../.." && pwd)/features.yaml"
+NODE_ID="toolsDots.devTools.nvim"
 BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
@@ -10,7 +12,7 @@ BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 STOW_FLAGS=(--dir="${PROJECT_DIR}" --target="${HOME}" --verbose --restow --no-folding)
 run_brew=true
 sync_plugins=true
-install_codex_acp=true
+codex_acp_override=""
 dry_run=false
 
 usage() {
@@ -18,8 +20,13 @@ usage() {
 Usage: ./install.sh [--essential] [--full] [--no-brew] [--no-sync] [--no-codex-acp] [--adopt] [--dry-run]
 
 Installs the Neovim/LazyVim configuration. Essential packages are the default.
-The full set additionally installs Pandoc. Codex ACP is installed by default
-for online Codex access from CodeCompanion.
+The full set additionally installs Pandoc.
+
+Codex ACP (for online Codex access from CodeCompanion) installs by default
+whenever `codex-acp` is listed in this node's `extras` in features.yaml
+(../../../features.yaml) -- comment out or delete that line to skip it
+without passing a flag. --no-codex-acp always skips it regardless of that
+list.
 EOF
 }
 
@@ -29,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --full) BREWFILE="${PROJECT_DIR}/Brewfile-full" ;;
     --no-brew) run_brew=false ;;
     --no-sync) sync_plugins=false ;;
-    --no-codex-acp) install_codex_acp=false ;;
+    --no-codex-acp) codex_acp_override=false ;;
     --adopt) STOW_FLAGS+=(--adopt) ;;
     --dry-run) dry_run=true ;;
     -h|--help) usage; exit 0 ;;
@@ -37,6 +44,21 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# --no-codex-acp always wins; otherwise install it exactly when `codex-acp`
+# is present in this node's `extras` list in features.yaml (commenting out
+# that line is enough to opt out without touching this script).
+if [[ -n "${codex_acp_override}" ]]; then
+  install_codex_acp="${codex_acp_override}"
+elif command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && [[ -f "${MANIFEST}" ]]; then
+  if yq -o=json ".nodes[] | select(.id == \"${NODE_ID}\") | .extras // []" "${MANIFEST}" | jq -e 'index("codex-acp") != null' >/dev/null; then
+    install_codex_acp=true
+  else
+    install_codex_acp=false
+  fi
+else
+  install_codex_acp=true
+fi
 
 # codex-acp is npm-distributed, not Homebrew-distributed, so it needs its
 # own install path separate from the Brewfile.
