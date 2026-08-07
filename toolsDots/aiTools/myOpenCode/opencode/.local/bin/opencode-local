@@ -42,6 +42,15 @@ start_stack() {
 }
 
 active_provider() {
+  # local-llm's own "provider" subcommand always runs (it's exempt from the
+  # turbo-forwarding intercept), so this is safe to check regardless of which
+  # backend is currently active. Without this check, requests kept asking for
+  # model "local-llm" even while TurboFieldfare was serving the port, which
+  # TurboFieldfare correctly rejects with "route not found".
+  if [ "$(local-llm provider status 2>/dev/null)" = "turbo" ]; then
+    echo "turbofieldfare/gemma-4-26b-a4b-it"
+    return
+  fi
   if [ "$(local-llm wrapper status)" = "on" ]; then
     echo "local-wrapped/local-llm"
   else
