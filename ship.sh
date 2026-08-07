@@ -17,7 +17,7 @@ description="Consolidated macOS configuration: essentialDots, toolsDots/devTools
 
 usage() {
   cat <<'EOF'
-Usage: ./publish-configs.sh [--dry-run] [--public]
+Usage: ./ship.sh [--dry-run] [--public]
 
 Commits every change in this checkout, creates the intelliDots GitHub
 repository if it doesn't exist yet, and pushes. Prompts for a commit message

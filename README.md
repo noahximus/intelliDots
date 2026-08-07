@@ -12,7 +12,7 @@ intelliDots/
   features-default.yaml    # selection: what a plain ./install.sh installs
   features-essential.yaml  # selection: every node, essential profile
   features-all.yaml        # selection: every node, full profile
-  install.sh  uninstall.sh  status.sh  update.sh  bootstrap.sh  publish-configs.sh
+  install.sh  uninstall.sh  status.sh  sync.sh  bootstrap.sh  ship.sh
   essentialDots/           # core shell, Git, macOS tools, general config
   toolsDots/
     devTools/
@@ -153,8 +153,8 @@ to contributing nothing) with no errors and no dead keymaps.
 ./status.sh                          # each node's presence + AI integration state
 ./uninstall.sh                       # uninstall every node, bottom-to-top
 ./uninstall.sh --only essentialDots
-./update.sh                          # git pull --ff-only, then re-run install.sh
-./publish-configs.sh --dry-run       # commit + push this checkout to GitHub
+./sync.sh                            # git pull --ff-only, then re-run install.sh
+./ship.sh --dry-run                  # commit + push this checkout to GitHub
 ```
 
 ## Essential-first policy

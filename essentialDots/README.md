@@ -104,7 +104,7 @@ links from an older checkout path to be migrated safely.
 From the `intelliDots` root:
 
 ```bash
-./update.sh
+./sync.sh
 ```
 
 The installer uses `brew bundle --no-upgrade`, skips already-installed casks,
