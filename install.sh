@@ -16,11 +16,8 @@ profile=essential
 dry_run=false
 bootstrap=true
 all_nodes=false
-apply_macos_defaults=false
-with_turbo_fieldfare=false
-pipx=false
 continue_on_error=true
-declare -a only=() skipped=()
+declare -a only=() skipped=() forced_options=()
 declare -a succeeded=() failed=()
 
 usage() {
@@ -32,6 +29,13 @@ true` (essentialDots, iTerm, nvim, tmux, superfile) install unless narrowed
 with --only; --all additionally installs every optional node (vsCode,
 localLLM, opencode).
 
+Each node may declare an `options` map in features.yaml (booleans forwarded
+as `--<key>` to that node's own install.sh). Edit features.yaml to change
+what a plain ./install.sh does by default -- e.g. localLLM's with-local-llm
+and with-turbo-fieldfare, or essentialDots' macos-defaults and pipx. The
+flags below force a matching option on for a single run without editing
+the file.
+
 Options:
   --essential           Install each component's essential profile (default).
   --full                Install each component's full profile.
@@ -40,11 +44,11 @@ Options:
   --only ID             Install only this node; may be repeated. Overrides
                          --all and the default selection.
   --skip ID             Skip a node; may be repeated.
-  --list                List configured nodes (id, path, default) and exit.
+  --list                List configured nodes (id, path, default, options) and exit.
   --no-bootstrap        Do not install Homebrew/yq when missing.
-  --macos-defaults      Apply tracked macOS preferences through essentialDots.
-  --pipx                Install essentialDots' Pipxfile applications with pipx.
-  --with-turbo-fieldfare Also install localLLM's TurboFieldfare backend.
+  --macos-defaults      Force essentialDots' macos-defaults option on for this run.
+  --pipx                Force essentialDots' pipx option on for this run.
+  --with-turbo-fieldfare Force localLLM's with-turbo-fieldfare option on for this run.
   --continue-on-error   Continue after a node fails (default).
   --stop-on-error       Stop at the first failing node instead.
   --dry-run             Show what would run without changing anything.
@@ -68,15 +72,15 @@ while [[ $# -gt 0 ]]; do
     --skip) shift; [[ $# -gt 0 ]] || { echo "--skip requires a node id" >&2; exit 2; }; skipped+=("$1") ;;
     --skip=*) skipped+=("${1#*=}") ;;
     --no-bootstrap) bootstrap=false ;;
-    --macos-defaults) apply_macos_defaults=true ;;
-    --pipx) pipx=true ;;
-    --with-turbo-fieldfare) with_turbo_fieldfare=true ;;
+    --macos-defaults) forced_options+=(macos-defaults) ;;
+    --pipx) forced_options+=(pipx) ;;
+    --with-turbo-fieldfare) forced_options+=(with-turbo-fieldfare) ;;
     --continue-on-error) continue_on_error=true ;;
     --stop-on-error) continue_on_error=false ;;
     --dry-run) dry_run=true ;;
     --list)
       command -v yq >/dev/null 2>&1 || { echo "yq is required (brew install yq)." >&2; exit 1; }
-      yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | "\(.id)\t\(.path)\tdefault=\(.default)"'
+      yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | "\(.id)\t\(.path)\tdefault=\(.default)\toptions=\(.options // {} | to_entries | map("\(.key)=\(.value)") | join(","))"'
       exit 0
       ;;
     -h|--help) usage; exit 0 ;;
@@ -140,22 +144,31 @@ manifest_nodes() {
   yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | [.id, .path, (.default // false)] | @tsv'
 }
 
+# Prints this node's option keys whose effective value is true -- either
+# set in features.yaml, or forced on for this run via a matching --<key>
+# flag (see forced_options above) -- one key per line.
+node_true_options() {
+  local id="$1" key value
+  while IFS=$'\t' read -r key value; do
+    [[ -n "${key}" ]] || continue
+    if [[ "${value}" == "true" ]]; then
+      printf '%s\n' "${key}"
+    elif [[ "${#forced_options[@]}" -gt 0 ]] && is_in "${key}" "${forced_options[@]}"; then
+      printf '%s\n' "${key}"
+    fi
+  done < <(yq -o=json ".nodes[] | select(.id == \"${id}\") | .options // {}" "${MANIFEST}" | jq -r 'to_entries[] | [.key, .value] | @tsv')
+}
+
 run_node() {
   local id="$1" path="$2" checkout="${ROOT_DIR}/${path}" installer
   local -a install_args=(--"${profile}")
   installer="${checkout}/install.sh"
 
-  if [[ "${id}" == "essentialDots" ]]; then
-    [[ "${apply_macos_defaults}" == true ]] && install_args+=(--macos-defaults)
-    [[ "${pipx}" == true ]] && install_args+=(--pipx)
-  fi
-  # localLLM has no packages of its own without an explicit backend flag;
-  # local-llm (llama.cpp) is on by default, with TurboFieldfare staying
-  # strictly opt-in given its size and hardware requirements.
-  if [[ "${id}" == "toolsDots.aiTools.localLLM" ]]; then
-    install_args+=(--with-local-llm)
-    [[ "${with_turbo_fieldfare}" == true ]] && install_args+=(--with-turbo-fieldfare)
-  fi
+  local option
+  while IFS= read -r option; do
+    [[ -n "${option}" ]] || continue
+    install_args+=("--${option}")
+  done < <(node_true_options "${id}")
 
   echo
   echo "==> ${id}"

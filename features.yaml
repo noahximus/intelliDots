@@ -2,6 +2,12 @@
 # uninstall bottom-to-top. Each `path` is relative to this file's directory;
 # there is no repo URL here because everything lives in this one checkout.
 #
+# `options` are per-node boolean flags forwarded to that node's own
+# install.sh as `--<key>` whenever the value is `true` -- edit the values
+# here to change what a plain `./install.sh` does by default. A matching
+# root install.sh flag (--macos-defaults, --pipx, --with-turbo-fieldfare)
+# still forces that option on for one-off runs without editing this file.
+#
 # `nvim_integration` is descriptive only (used by status.sh) -- the actual
 # trigger mechanism is a filesystem convention: the aiTools component stows
 # an integration file to a well-known path under ~/.local/share, and the
@@ -13,6 +19,9 @@ nodes:
   - id: essentialDots
     path: essentialDots
     default: true
+    options:
+      macos-defaults: false
+      pipx: false
 
   - id: toolsDots.devTools.iTerm
     path: toolsDots/devTools/iTerm
@@ -41,6 +50,13 @@ nodes:
   - id: toolsDots.aiTools.localLLM
     path: toolsDots/aiTools/localLLM
     default: false
+    options:
+      # llama.cpp-based local model runtime. On by default when this node
+      # is selected at all, matching myAILab's old delegation policy.
+      with-local-llm: true
+      # Swift/Metal Gemma runtime. Opt-in: large (~14GB model) and needs
+      # macOS 26 + Xcode 26 + Apple Silicon.
+      with-turbo-fieldfare: false
     nvim_integration: codecompanion
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
 

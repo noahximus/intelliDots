@@ -78,15 +78,33 @@ nodes:
   - id: essentialDots
     path: essentialDots
     default: true
+    options:
+      macos-defaults: false
+      pipx: false
   - id: toolsDots.aiTools.localLLM
     path: toolsDots/aiTools/localLLM
     default: false
+    options:
+      with-local-llm: true
+      with-turbo-fieldfare: false
     nvim_integration: codecompanion
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
 ```
 
 `install.sh` installs nodes top-to-bottom; `uninstall.sh` uninstalls
 bottom-to-top. `nvim_integration*` fields are descriptive only -- see below.
+
+A node's `options` map is forwarded to its own `install.sh` as `--<key>`
+whenever the value is `true` -- this is what decides, for example, whether
+`localLLM` installs the llama.cpp backend, TurboFieldfare, both, or neither.
+Edit the values in this file to change what a plain `./install.sh` does by
+default; `--macos-defaults`, `--pipx`, and `--with-turbo-fieldfare` remain
+available as one-off overrides that force the matching option on without
+editing the file:
+
+```bash
+./install.sh --only toolsDots.aiTools.localLLM --with-turbo-fieldfare
+```
 
 ## AI tools automatically customize Neovim (and skip cleanly without it)
 
