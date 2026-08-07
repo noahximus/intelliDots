@@ -24,9 +24,6 @@ brew "zsh-autosuggestions" # Zsh plugin that suggests commands from shell histor
 brew "zsh-fast-syntax-highlighting" # Zsh plugin that highlights commands as you type.
 
 cask "aerospace" # Tiling window manager for macOS.
-cask "chatgpt" # OpenAI's official ChatGPT desktop app.
-cask "claude" # Anthropic's official Claude desktop app.
-cask "claude-code" # Anthropic's official Claude Code CLI app.
 cask "discord" # Voice, chat, and community messaging app.
 cask "docker-desktop" # Docker Desktop for containers and local development services.
 cask "font-meslo-for-powerlevel10k" # MesloLGS NF font used by the Powerlevel10k prompt.

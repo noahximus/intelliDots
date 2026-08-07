@@ -9,7 +9,6 @@ brew "eza" # Modern replacement for ls with icons, colors, and Git status.
 brew "fd" # Fast, friendly replacement for find.
 brew "ffmpeg" # Command-line audio/video conversion and processing toolkit.
 brew "fzf" # Fuzzy finder used by shell, Git, and editor workflows.
-brew "gemini-cli" # Google's Gemini command-line AI assistant.
 brew "gh" # GitHub CLI for repositories, pull requests, issues, and auth.
 brew "git" # Version control system used by these dotfiles and most dev work.
 brew "librsvg" # Converts and renders SVG files; used by document/media tooling.
@@ -36,11 +35,7 @@ brew "zsh-fast-syntax-highlighting" # Zsh plugin that highlights commands as you
 
 cask "aerospace" # Tiling window manager for macOS.
 cask "amazon-chime" # Amazon Chime desktop client for meetings and calls.
-cask "antigravity" # Google's AI-powered development environment.
 cask "basictex" # Smaller TeX distribution for LaTeX and PDF document generation.
-cask "chatgpt" # OpenAI's official ChatGPT desktop app.
-cask "claude" # Anthropic's official Claude desktop app.
-cask "claude-code" # Anthropic's official Claude Code CLI app.
 cask "discord" # Voice, chat, and community messaging app.
 cask "docker-desktop" # Docker Desktop for containers and local development services.
 cask "font-meslo-for-powerlevel10k" # MesloLGS NF font used by the Powerlevel10k prompt.

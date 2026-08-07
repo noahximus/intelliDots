@@ -21,6 +21,7 @@ intelliDots/
       tmux/                # tmux, its config, and the tpm plugin manager
       superfile/            # Superfile terminal file manager and themes
     aiTools/
+      aiApps/              # ChatGPT, Claude, Claude Code (+ Gemini CLI, Antigravity)
       localLLM/            # llama.cpp runtime, models, wrapper
       opencode/            # OpenCode and optional local-model bridge
 ```
@@ -36,8 +37,8 @@ its own packages, files, state, and documentation.
 ```
 
 Installs the nodes marked `default: true` in `features.yaml` (`essentialDots`,
-`iTerm`, `nvim`, `tmux`, `superfile`) at the essential profile. Optional nodes
-(`vsCode`, `localLLM`, `opencode`) are opt-in:
+`iTerm`, `nvim`, `tmux`, `superfile`, `aiApps`) at the essential profile.
+Optional nodes (`vsCode`, `localLLM`, `opencode`) are opt-in:
 
 ```bash
 ./install.sh --only toolsDots.aiTools.localLLM

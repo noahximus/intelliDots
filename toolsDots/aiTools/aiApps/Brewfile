@@ -1,0 +1,5 @@
+cask "chatgpt" # OpenAI's official ChatGPT desktop app.
+cask "claude" # Anthropic's official Claude desktop app.
+cask "claude-code" # Anthropic's official Claude Code CLI app.
+brew "gemini-cli" # Google's Gemini command-line AI assistant.
+cask "antigravity" # Google's AI-powered development environment.

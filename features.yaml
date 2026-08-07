@@ -34,6 +34,10 @@ nodes:
     path: toolsDots/devTools/superfile
     default: true
 
+  - id: toolsDots.aiTools.aiApps
+    path: toolsDots/aiTools/aiApps
+    default: true
+
   - id: toolsDots.aiTools.localLLM
     path: toolsDots/aiTools/localLLM
     default: false
