@@ -1,0 +1,39 @@
+# Selection manifest for intelliDots. Nodes install top-to-bottom and
+# uninstall bottom-to-top. Each `path` is relative to this file's directory;
+# there is no repo URL here because everything lives in this one checkout.
+#
+# `nvim_integration` is descriptive only (used by status.sh) -- the actual
+# trigger mechanism is a filesystem convention: the aiTools component stows
+# an integration file to a well-known path under ~/.local/share, and the
+# corresponding myNvim plugin spec loads it if present at Neovim startup.
+# Install order between the two components never matters, and installing
+# either one without myNvim is always safe (the stowed file just sits
+# unused).
+nodes:
+  - id: essentialDots
+    path: essentialDots
+    default: true
+
+  - id: toolsDots.devTools.myITerm
+    path: toolsDots/devTools/myITerm
+    default: true
+
+  - id: toolsDots.devTools.myNvim
+    path: toolsDots/devTools/myNvim
+    default: true
+
+  - id: toolsDots.devTools.myVSCode
+    path: toolsDots/devTools/myVSCode
+    default: false
+
+  - id: toolsDots.aiTools.myLocalLLM
+    path: toolsDots/aiTools/myLocalLLM
+    default: false
+    nvim_integration: codecompanion
+    nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
+
+  - id: toolsDots.aiTools.myOpenCode
+    path: toolsDots/aiTools/myOpenCode
+    default: false
+    nvim_integration: opencode
+    nvim_integration_path: "~/.local/share/opencode/integrations/nvim-toggleterm.lua"

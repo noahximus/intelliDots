@@ -1,0 +1,172 @@
+#!/bin/sh
+
+set -eu
+
+OPENCODE_CONFIG_FILE="${OPENCODE_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode-local.json}"
+
+usage() {
+  cat <<'EOF'
+Usage: opencode-local COMMAND [ARGUMENTS]
+
+Commands:
+  run [MODEL] [-- OPENCODE_ARGS...]  Start the stack and launch OpenCode.
+  start [MODEL]                     Start the stack, optionally selecting MODEL.
+  stop                              Stop the local-LLM.
+  restart [MODEL]                   Restart, optionally selecting MODEL.
+  status                            Show OpenCode and local-LLM status.
+  doctor                            Check commands, config, model, and endpoint.
+  models                            List locally installed models.
+  update                            Upgrade OpenCode with Homebrew.
+  config                            Print the OpenCode config path.
+  help                              Show this help.
+
+The selected model controls the wrapper policy through local-llm. OpenCode
+uses port 8090 when wrapper mode is on and port 8081 when it is off.
+EOF
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "$1 is not installed or not on PATH" >&2
+    return 1
+  fi
+}
+
+start_stack() {
+  model=${1:-}
+  if [ -n "$model" ]; then
+    local-llm model use "$model"
+  else
+    local-llm start
+  fi
+}
+
+active_provider() {
+  if [ "$(local-llm wrapper status)" = "on" ]; then
+    echo "local-wrapped/local-llm"
+  else
+    echo "local-direct/local-llm"
+  fi
+}
+
+active_endpoint() {
+  local-llm endpoint
+}
+
+run_opencode() {
+  model=""
+  if [ "${1:-}" != "" ] && [ "${1:-}" != "--" ]; then
+    model=$1
+    shift
+  fi
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+
+  require_command local-llm
+  require_command opencode
+  if [ ! -f "$OPENCODE_CONFIG_FILE" ]; then
+    echo "Optional local-LLM configuration is missing: $OPENCODE_CONFIG_FILE" >&2
+    exit 1
+  fi
+  start_stack "$model"
+
+  provider_model=$(active_provider)
+  provider_id=${provider_model%/*}
+  endpoint=$(active_endpoint)
+  echo "Launching OpenCode with $provider_model via $endpoint"
+  OPENCODE_CONFIG_CONTENT=$(printf \
+    '{"model":"%s","small_model":"%s","provider":{"%s":{"options":{"baseURL":"%s/v1"}}}}' \
+    "$provider_model" "$provider_model" "$provider_id" "$endpoint")
+  export OPENCODE_CONFIG_CONTENT
+  export OPENCODE_CONFIG="$OPENCODE_CONFIG_FILE"
+  exec opencode "$@"
+}
+
+status() {
+  if command -v opencode >/dev/null 2>&1; then
+    echo "opencode: $(opencode --version)"
+  else
+    echo "opencode: missing"
+  fi
+  if command -v local-llm >/dev/null 2>&1; then
+    local-llm status || true
+    echo "OpenCode route: $(active_provider) via $(active_endpoint)"
+  else
+    echo "local-llm: missing"
+  fi
+  echo "config: $OPENCODE_CONFIG_FILE"
+}
+
+doctor() {
+  failed=0
+  for command in opencode local-llm curl; do
+    if command -v "$command" >/dev/null 2>&1; then
+      echo "$command: $(command -v "$command")"
+    else
+      echo "$command: missing"
+      failed=1
+    fi
+  done
+
+  if [ -f "$OPENCODE_CONFIG_FILE" ]; then
+    echo "OpenCode config: $OPENCODE_CONFIG_FILE"
+  else
+    echo "OpenCode config: missing ($OPENCODE_CONFIG_FILE)"
+    failed=1
+  fi
+
+  if command -v local-llm >/dev/null 2>&1; then
+    local-llm doctor || failed=1
+    endpoint=$(active_endpoint)
+    if curl -fsS --max-time 2 "$endpoint/v1/models" >/dev/null 2>&1; then
+      echo "OpenCode endpoint: ready ($endpoint)"
+    else
+      echo "OpenCode endpoint: unavailable ($endpoint)"
+      failed=1
+    fi
+  fi
+  return "$failed"
+}
+
+case "${1:-help}" in
+  run)
+    shift
+    run_opencode "$@"
+    ;;
+  start)
+    shift
+    require_command local-llm
+    start_stack "${1:-}"
+    ;;
+  stop)
+    require_command local-llm
+    local-llm stop
+    ;;
+  restart)
+    shift
+    require_command local-llm
+    if [ -n "${1:-}" ]; then
+      local-llm model use "$1"
+    else
+      local-llm restart
+    fi
+    ;;
+  status) status ;;
+  doctor) doctor ;;
+  models)
+    require_command local-llm
+    local-llm model list
+    ;;
+  update)
+    require_command brew
+    brew upgrade opencode
+    ;;
+  config) echo "$OPENCODE_CONFIG_FILE" ;;
+  help|-h|--help) usage ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

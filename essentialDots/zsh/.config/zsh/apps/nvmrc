@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+export NVM_DIR="$HOME/.config/nvm"
+
+if command -v brew >/dev/null 2>&1; then
+  NVM_HOMEBREW_PREFIX="$(brew --prefix nvm 2>/dev/null)"
+  [ -s "${NVM_HOMEBREW_PREFIX}/nvm.sh" ] && . "${NVM_HOMEBREW_PREFIX}/nvm.sh"
+  [ -s "${NVM_HOMEBREW_PREFIX}/etc/bash_completion.d/nvm" ] && . "${NVM_HOMEBREW_PREFIX}/etc/bash_completion.d/nvm"
+  unset NVM_HOMEBREW_PREFIX
+fi

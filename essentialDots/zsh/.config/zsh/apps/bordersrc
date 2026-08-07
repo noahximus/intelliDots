@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# Load python specific configs if they exist.
+[ -f "${XDG_CONFIG_HOME}/borders/colors.sh" ] && . "${XDG_CONFIG_HOME}/borders/colors.sh"
+
+# borders active_color=$COLOR_ACCENT_BRIGHT inactive_color=$COLOR_BACKGROUND width=5.0 &
+# borders active_color=$0xff239B56 inactive_color=$COLOR_BACKGROUND width=6.0
+
+# borders active_color=0xffe1e3e4 inactive_color=0xff494d64 width=5.0 &
+# borders active_color=0xff046307 inactive_color=0xff555555 width=5.0 &
+# borders active_color=0xffffd700 inactive_color=0xff555555 width=8.0 &
+
+borders active_color=0xff1f51ff inactive_color=0xff273746 width=9.0 & # Neon Blue
+# borders active_color=0xff1f1818 inactive_color=0xff273746 width=4.0 & # Neon Red
+# borders active_color=0xff49ff14 inactive_color=0xff273746 width=4.0 & # Neon Green
+# borders active_color=0xffff8822 inactive_color=0xff27374 width=4.0 & # Neon Yellow

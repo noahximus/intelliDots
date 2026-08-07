@@ -1,0 +1,7 @@
+brew "cmake"
+brew "fd"
+brew "fzf"
+brew "neovim"
+brew "node"
+brew "ripgrep"
+brew "stow"

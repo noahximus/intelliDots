@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FALLBACK_INACTIVE_COLOR="0xff273746"
+DEFAULT_WIDTH="9.0"
+COLOR_NAMES=(blue red green yellow cyan magenta purple orange pink lime teal white)
+STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/set-border"
+STATE_FILE="${STATE_DIR}/current-color"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  set-border COLOR [--inactive-color COLOR] [--width WIDTH]
+  set-border [--cycle] [--inactive-color COLOR] [--width WIDTH]
+  set-border --list
+
+Colors:
+  blue
+  red
+  green
+  yellow
+  cyan
+  magenta
+  purple
+  orange
+  pink
+  lime
+  teal
+  white
+
+Examples:
+  set-border
+  set-border --cycle
+  set-border blue
+  set-border cyan
+  set-border green
+  set-border yellow --width 7.0
+  set-border red --inactive-color 0xff273746
+EOF
+}
+
+list_colors() {
+  cat <<'EOF'
+blue    active=0xff1f51ff inactive=0xff273746
+red     active=0xffff073a inactive=0xff3a1f27
+green   active=0xff49ff14 inactive=0xff243a27
+yellow  active=0xffff8822 inactive=0xff3a3220
+cyan    active=0xff00f5ff inactive=0xff1f383a
+magenta active=0xffff2bd6 inactive=0xff3a2035
+purple  active=0xff9d4dff inactive=0xff2f2540
+orange  active=0xffff5f1f inactive=0xff3a281f
+pink    active=0xffff4fd8 inactive=0xff3a2234
+lime    active=0xffb6ff00 inactive=0xff303a1f
+teal    active=0xff00ff9c inactive=0xff1f3a32
+white   active=0xffe8f8ff inactive=0xff30383d
+EOF
+}
+
+active_color_value() {
+  case "$1" in
+    blue) printf '%s\n' "0xff1f51ff" ;;
+    red) printf '%s\n' "0xffff073a" ;;
+    green) printf '%s\n' "0xff49ff14" ;;
+    yellow) printf '%s\n' "0xffff8822" ;;
+    cyan) printf '%s\n' "0xff00f5ff" ;;
+    magenta) printf '%s\n' "0xffff2bd6" ;;
+    purple) printf '%s\n' "0xff9d4dff" ;;
+    orange) printf '%s\n' "0xffff5f1f" ;;
+    pink) printf '%s\n' "0xffff4fd8" ;;
+    lime) printf '%s\n' "0xffb6ff00" ;;
+    teal) printf '%s\n' "0xff00ff9c" ;;
+    white) printf '%s\n' "0xffe8f8ff" ;;
+    0x*) printf '%s\n' "$1" ;;
+    *)
+      printf 'Unknown border color: %s\n\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+inactive_color_value() {
+  case "$1" in
+    blue) printf '%s\n' "0xff273746" ;;
+    red) printf '%s\n' "0xff3a1f27" ;;
+    green) printf '%s\n' "0xff243a27" ;;
+    yellow) printf '%s\n' "0xff3a3220" ;;
+    cyan) printf '%s\n' "0xff1f383a" ;;
+    magenta) printf '%s\n' "0xff3a2035" ;;
+    purple) printf '%s\n' "0xff2f2540" ;;
+    orange) printf '%s\n' "0xff3a281f" ;;
+    pink) printf '%s\n' "0xff3a2234" ;;
+    lime) printf '%s\n' "0xff303a1f" ;;
+    teal) printf '%s\n' "0xff1f3a32" ;;
+    white) printf '%s\n' "0xff30383d" ;;
+    *) printf '%s\n' "${FALLBACK_INACTIVE_COLOR}" ;;
+  esac
+}
+
+is_named_color() {
+  local color
+  for color in "${COLOR_NAMES[@]}"; do
+    if [ "$1" = "${color}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+next_color() {
+  local current="${1:-}"
+  local color
+  local use_next=false
+
+  for color in "${COLOR_NAMES[@]}"; do
+    if [ "${use_next}" = true ]; then
+      printf '%s\n' "${color}"
+      return 0
+    fi
+
+    if [ "${color}" = "${current}" ]; then
+      use_next=true
+    fi
+  done
+
+  printf '%s\n' "${COLOR_NAMES[0]}"
+}
+
+cycle_color() {
+  local current=""
+
+  if [ -f "${STATE_FILE}" ]; then
+    current="$(sed -n '1p' "${STATE_FILE}")"
+  fi
+
+  if ! is_named_color "${current}"; then
+    current=""
+  fi
+
+  next_color "${current}"
+}
+
+if [ "$#" -eq 0 ]; then
+  set -- --cycle
+fi
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  usage
+  exit 0
+fi
+
+if [ "$1" = "--list" ]; then
+  list_colors
+  exit 0
+fi
+
+if [ "$1" = "--cycle" ]; then
+  color_name="$(cycle_color)"
+else
+  color_name="$1"
+fi
+
+active_color="$(active_color_value "${color_name}")"
+inactive_color="$(inactive_color_value "${color_name}")"
+width="${DEFAULT_WIDTH}"
+shift
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --inactive-color)
+      if [ "$#" -lt 2 ]; then
+        printf '%s\n' '--inactive-color requires a value' >&2
+        exit 2
+      fi
+      inactive_color="$2"
+      shift 2
+      ;;
+    --width)
+      if [ "$#" -lt 2 ]; then
+        printf '%s\n' '--width requires a value' >&2
+        exit 2
+      fi
+      width="$2"
+      shift 2
+      ;;
+    *)
+      printf 'Unknown option: %s\n\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if ! command -v borders >/dev/null 2>&1; then
+  printf 'borders is not installed or not on PATH.\n' >&2
+  exit 1
+fi
+
+borders active_color="${active_color}" inactive_color="${inactive_color}" width="${width}"
+
+if is_named_color "${color_name}"; then
+  mkdir -p "${STATE_DIR}"
+  printf '%s\n' "${color_name}" > "${STATE_FILE}"
+fi
+
+printf 'Border color=%s active_color=%s inactive_color=%s width=%s\n' "${color_name}" "${active_color}" "${inactive_color}" "${width}"

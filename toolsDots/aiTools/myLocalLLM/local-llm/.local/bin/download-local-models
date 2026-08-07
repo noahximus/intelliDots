@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MODELS_DIR="${LOCAL_LLM_MODELS_DIR:-${HOME}/Models}"
+# The catalog is the single source of truth for available models -- add or
+# edit a model by editing this file, not this script.
+CATALOG_FILE="${LOCAL_LLM_MODELS_CATALOG:-${HOME}/.local/share/local-llm/models.json}"
+DOWNLOAD_ALL=false
+FORCE=false
+CATALOG=true
+MODELS=()
+FAILED_MODELS=()
+
+require_catalog() {
+  command -v jq >/dev/null 2>&1 || { printf 'jq is required to read the model catalog.\n' >&2; exit 1; }
+  [ -f "${CATALOG_FILE}" ] || { printf 'Model catalog not found: %s\n' "${CATALOG_FILE}" >&2; exit 1; }
+}
+
+require_catalog
+
+catalog_model_ids() { jq -r '.models | keys[]' "${CATALOG_FILE}"; }
+
+# Looks up one field for one model ID; empty output means the field (or the
+# model itself) doesn't exist.
+model_field() { jq -r --arg m "$1" --arg f "$2" '.models[$m][$f] // empty' "${CATALOG_FILE}"; }
+model_repo() { model_field "$1" repo; }
+model_file() { model_field "$1" file; }
+model_dest() { model_field "$1" dest; }
+model_legacy_link() { model_field "$1" legacy_link; }
+model_purpose() { model_field "$1" purpose; }
+model_url() { printf 'https://huggingface.co/%s\n' "$(model_repo "$1")"; }
+model_known() { jq -e --arg m "$1" '.models[$m] != null' "${CATALOG_FILE}" >/dev/null 2>&1; }
+
+ALL_MODELS=()
+while IFS= read -r id; do ALL_MODELS+=("${id}"); done < <(catalog_model_ids)
+
+model_summary_lines() {
+  jq -r '.models | to_entries[] | "\(.key)|\(.value.purpose)"' "${CATALOG_FILE}" \
+    | awk -F'|' '{printf "  %-16s %s\n", $1, $2}'
+}
+
+usage() {
+  cat <<EOF
+Usage:
+  download-local-models [MODEL ...] [--all] [--models-dir DIR] [--force] [--no-catalog]
+  download-local-models --list
+
+Models:
+$(model_summary_lines)
+
+Examples:
+  download-local-models --all
+  download-local-models qwen-coder
+  download-local-models qwen3-4b phi4-mini gemma3-12b
+  download-local-models --models-dir "\$HOME/Models" --all
+
+The script downloads GGUF files into purpose folders and creates compatibility
+symlinks for the older flat model IDs used by local-llm.
+
+When downloading multiple models, a failed model is reported and the script
+continues with the remaining models. The script exits non-zero at the end if
+any model failed.
+
+Gemma models are gated on Hugging Face. Log in with hf and accept Google's
+Gemma terms before downloading them.
+
+Add or edit models by editing the catalog:
+  ${CATALOG_FILE}
+EOF
+}
+
+list_models() {
+  jq -r '
+    .models | to_entries[] |
+    "\(.key)  repo=\(.value.repo) url=https://huggingface.co/\(.value.repo) file=\(.value.file) dest=\(.value.dest)"
+  ' "${CATALOG_FILE}"
+}
+
+normalize_model_name() {
+  local requested="$1" match
+  if model_known "${requested}"; then
+    printf '%s\n' "${requested}"
+    return 0
+  fi
+  match="$(jq -r --arg a "${requested}" '
+    .models | to_entries[] | select((.value.aliases // []) | index($a)) | .key
+  ' "${CATALOG_FILE}" | head -n1)"
+  if [ -n "${match}" ]; then
+    printf '%s\n' "${match}"
+    return 0
+  fi
+  printf 'Unknown model: %s\n\n' "${requested}" >&2
+  usage >&2
+  exit 2
+}
+
+download_with_hf() {
+  local repo="$1"
+  local file="$2"
+  local download_dir="$3"
+
+  hf download "${repo}" "${file}" --local-dir "${download_dir}"
+}
+
+download_with_curl() {
+  local repo="$1"
+  local file="$2"
+  local output="$3"
+  local url="https://huggingface.co/${repo}/resolve/main/${file}?download=true"
+
+  curl --fail --location --continue-at - --output "${output}.part" "${url}"
+  mv "${output}.part" "${output}"
+}
+
+looks_like_access_approval_error() {
+  local log_file="$1"
+
+  grep -Eiq \
+    'access denied|requires approval|gated|401|403|unauthorized|not authorized|request access|must be authenticated' \
+    "${log_file}"
+}
+
+print_access_approval_steps() {
+  local model="$1"
+  local url="$2"
+
+  cat >&2 <<EOF
+
+Access approval steps:
+  1. Open this model page in your browser:
+     ${url}
+  2. Sign in to Hugging Face with the account you want to use on this Mac.
+  3. Click the access/request/accept button and agree to the model terms.
+  4. Back in this terminal, authenticate that same account:
+     hf auth login
+  5. Verify the active account:
+     hf auth whoami
+  6. Retry only this failed model:
+     download-local-models ${model}
+
+If this still fails, make sure the browser account that accepted access is the
+same account shown by 'hf auth whoami'.
+EOF
+}
+
+download_model() {
+  local model="$1"
+  local repo url file rel_dest rel_link dest link download_dir downloaded_file hf_log
+
+  repo="$(model_repo "${model}")"
+  url="$(model_url "${model}")"
+  file="$(model_file "${model}")"
+  rel_dest="$(model_dest "${model}")"
+  rel_link="$(model_legacy_link "${model}")"
+  dest="${MODELS_DIR}/${rel_dest}"
+  link="${MODELS_DIR}/${rel_link}"
+
+  mkdir -p "$(dirname "${dest}")"
+
+  if [ -f "${dest}" ] && [ "${FORCE}" = false ]; then
+    printf 'Already exists: %s\n' "${dest}"
+  else
+    printf 'Downloading %s from %s...\n' "${file}" "${repo}"
+    printf 'Model page: %s\n' "${url}"
+
+    if command -v hf >/dev/null 2>&1; then
+      download_dir="$(mktemp -d "${TMPDIR:-/tmp}/download-local-models.XXXXXX")"
+      hf_log="${download_dir}/hf-download.log"
+      if ! download_with_hf "${repo}" "${file}" "${download_dir}" >"${hf_log}" 2>&1; then
+        cat "${hf_log}" >&2
+        if looks_like_access_approval_error "${hf_log}"; then
+          print_access_approval_steps "${model}" "${url}"
+        fi
+        return 1
+      fi
+      downloaded_file="${download_dir}/${file}"
+
+      if [ ! -f "${downloaded_file}" ]; then
+        printf 'Downloaded file not found: %s\n' "${downloaded_file}" >&2
+        printf 'Model page: %s\n' "${url}" >&2
+        if looks_like_access_approval_error "${hf_log}"; then
+          print_access_approval_steps "${model}" "${url}"
+        fi
+        return 1
+      fi
+
+      mv "${downloaded_file}" "${dest}"
+    else
+      printf 'hf is not available; falling back to direct curl download.\n' >&2
+      printf 'For gated/private models, install hf and run: hf auth login\n' >&2
+      printf 'Model page: %s\n' "${url}" >&2
+      download_with_curl "${repo}" "${file}" "${dest}"
+    fi
+  fi
+
+  mkdir -p "$(dirname "${link}")"
+  if [ "${link}" != "${dest}" ]; then
+    if [ -e "${link}" ] && [ ! -L "${link}" ] && [ "${FORCE}" = false ]; then
+      printf 'Compatibility path already exists and is not a symlink: %s\n' "${link}" >&2
+      printf 'Leaving it untouched. Use --force to replace it with a symlink.\n' >&2
+    else
+      ln -sfn "${rel_dest#*/}" "${link}"
+      printf 'Compatibility link: %s -> %s\n' "${link}" "${rel_dest#*/}"
+    fi
+  fi
+}
+
+write_catalog() {
+  local catalog="${MODELS_DIR}/_catalog.md"
+
+  mkdir -p "${MODELS_DIR}"
+  {
+    printf '# Local Models\n\n'
+    printf 'Model files are stored below `%s`.\n\n' "${MODELS_DIR}"
+    printf '| ID | Path | Best For | Source |\n'
+    printf '| --- | --- | --- | --- |\n'
+
+    for model in "${ALL_MODELS[@]}"; do
+      printf '| `%s` | `%s` | %s | `%s` |\n' \
+        "${model}" \
+        "$(model_dest "${model}")" \
+        "$(model_purpose "${model}")" \
+        "$(model_repo "${model}")"
+    done
+  } >"${catalog}"
+
+  printf 'Catalog: %s\n' "${catalog}"
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  --list)
+    list_models
+    exit 0
+    ;;
+  --all)
+    DOWNLOAD_ALL=true
+    shift
+    ;;
+  --models-dir)
+    if [ "$#" -lt 2 ]; then
+      printf '%s\n' '--models-dir requires a value' >&2
+      exit 2
+    fi
+    MODELS_DIR="$2"
+    shift 2
+    ;;
+  --force)
+    FORCE=true
+    shift
+    ;;
+  --no-catalog)
+    CATALOG=false
+    shift
+    ;;
+  *)
+    MODELS+=("$(normalize_model_name "$1")")
+    shift
+    ;;
+  esac
+done
+
+if [ "${DOWNLOAD_ALL}" = true ] || [ "${#MODELS[@]}" -eq 0 ]; then
+  MODELS=("${ALL_MODELS[@]}")
+fi
+
+mkdir -p "${MODELS_DIR}"
+
+for model in "${MODELS[@]}"; do
+  if ! download_model "${model}"; then
+    printf 'Failed: %s\n' "${model}" >&2
+    printf 'Model page: %s\n' "$(model_url "${model}")" >&2
+    FAILED_MODELS+=("${model}")
+  fi
+done
+
+if [ "${CATALOG}" = true ]; then
+  write_catalog
+fi
+
+if [ "${#FAILED_MODELS[@]}" -gt 0 ]; then
+  printf '\nThe following model downloads failed:\n' >&2
+  for model in "${FAILED_MODELS[@]}"; do
+    printf '  - %s %s\n' "${model}" "$(model_url "${model}")" >&2
+  done
+  printf '\nYou can rerun only the failed model after fixing access/authentication.\n' >&2
+  exit 1
+fi

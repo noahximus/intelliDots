@@ -1,0 +1,17 @@
+# VS Code extensions installed with `code --install-extension`.
+#
+# Format:
+#   publisher.extension-id
+#   publisher.extension-id # optional comment
+#
+# Blank lines and comments are ignored.
+
+ms-python.python # Python language support, debugging, and environment management.
+ms-python.vscode-pylance # Fast Python IntelliSense, type checking, and auto-imports.
+eamodio.gitlens # Inline git blame, history, and repository insights.
+vscodevim.vim # Vim modal-editing keybindings, matching myNvim's Neovim workflow.
+esbenp.prettier-vscode # Opinionated code formatter for JS/TS/JSON/CSS/Markdown.
+dbaeumer.vscode-eslint # ESLint integration for JS/TS linting.
+anthropic.claude-code # Official Claude Code IDE integration (sidebar, inline diffs).
+openai.chatgpt # Official Codex coding agent IDE integration.
+Continue.continue # Open-source AI code agent; connects to local LLM backends (llama.cpp/Ollama-compatible) from myLocalLLM.

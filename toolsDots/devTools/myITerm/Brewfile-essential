@@ -1,0 +1,3 @@
+brew "stow"
+cask "font-meslo-for-powerlevel10k"
+cask "iterm2"

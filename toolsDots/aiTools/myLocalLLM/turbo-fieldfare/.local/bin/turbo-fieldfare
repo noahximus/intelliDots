@@ -1,0 +1,403 @@
+#!/bin/sh
+
+set -eu
+
+REPO_DIR="${TURBO_FIELDFARE_REPO_DIR:-$HOME/.config/turbo-fieldfare}"
+RUNTIME_DIR="${TURBO_FIELDFARE_RUNTIME_DIR:-$REPO_DIR/.runtime}"
+CONFIG_FILE="${TURBO_FIELDFARE_CONFIG:-$RUNTIME_DIR/config.env}"
+PID_FILE="$RUNTIME_DIR/server.pid"
+LOG_FILE="$RUNTIME_DIR/server.log"
+CHAT_PID_FILE="$RUNTIME_DIR/chat.pid"
+CHAT_HISTORY_FILE="$RUNTIME_DIR/chat-history.json"
+BIN_DIR="$REPO_DIR/.build/release"
+SERVER_BIN="$BIN_DIR/TurboFieldfareServer"
+REPACK_BIN="$BIN_DIR/TurboFieldfareRepack"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$CONFIG_FILE"
+fi
+
+: "${TURBO_FIELDFARE_HOST:=127.0.0.1}"
+# Shares local-llm's backend port by design: the two are never meant to run
+# at the same time, so freeing 8080 for ordinary dev servers matters more
+# than giving TurboFieldfare a port of its own. See backend_owner() below for
+# how start/status tell the two backends apart despite sharing a port.
+: "${TURBO_FIELDFARE_PORT:=8081}"
+: "${TURBO_FIELDFARE_MODEL_PATH:=$HOME/.config/turbo-fieldfare-model/gemma-4-26b-a4b-it.gturbo}"
+: "${TURBO_FIELDFARE_MODEL_NAME:=gemma-4-26b-a4b-it}"
+: "${TURBO_FIELDFARE_CTX_SIZE:=16384}"
+
+endpoint_url="http://$TURBO_FIELDFARE_HOST:$TURBO_FIELDFARE_PORT"
+
+require_repo() {
+  if [ ! -d "$REPO_DIR/.git" ]; then
+    echo "TurboFieldfare is not cloned at $REPO_DIR." >&2
+    echo "Run: myLocalLLM/install.sh --with-turbo-fieldfare" >&2
+    exit 1
+  fi
+}
+
+ready() {
+  curl -fsS --max-time 1 "$1" >/dev/null 2>&1
+}
+
+pid_live() {
+  file=$1
+  [ -f "$file" ] || return 1
+  pid=$(cat "$file" 2>/dev/null || true)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+wait_ready() {
+  url=$1
+  attempts=$2
+  count=0
+  while [ "$count" -lt "$attempts" ]; do
+    ready "$url" && return 0
+    count=$((count + 1))
+    sleep 1
+  done
+  return 1
+}
+
+model_installed() {
+  [ -f "$TURBO_FIELDFARE_MODEL_PATH/manifest.json" ]
+}
+
+# local-llm's llama-server also serves /health, so a bare readiness check
+# can't tell the two backends apart once they share a port. Compare the
+# model id reported by /v1/models instead.
+backend_owner() {
+  curl -fsS --max-time 1 "$endpoint_url/v1/models" 2>/dev/null |
+    grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 |
+    sed -E 's/.*"([^"]*)"$/\1/'
+}
+
+doctor() {
+  failed=0
+  for command in swift git curl python3; do
+    if command -v "$command" >/dev/null 2>&1; then
+      echo "$command: $(command -v "$command")"
+    else
+      echo "$command: missing"
+      failed=1
+    fi
+  done
+  if [ -d "$REPO_DIR/.git" ]; then
+    echo "repo: $REPO_DIR"
+  else
+    echo "repo: missing ($REPO_DIR)"
+    failed=1
+  fi
+  if [ -x "$SERVER_BIN" ]; then
+    echo "server binary: $SERVER_BIN"
+  else
+    echo "server binary: missing (run: turbo-fieldfare install)"
+    failed=1
+  fi
+  if model_installed; then
+    echo "model: installed ($TURBO_FIELDFARE_MODEL_PATH)"
+  else
+    echo "model: missing (run: turbo-fieldfare install)"
+    failed=1
+  fi
+  return "$failed"
+}
+
+# Builds the release binaries this CLI drives, then repacks the pinned Gemma
+# model unless it is already installed. This is intentionally separate from
+# the myLocalLLM installer: it can take 15-30+ minutes and download ~14GB.
+install() {
+  force=0
+  [ "${1:-}" = "--force" ] && force=1
+  require_repo
+  ( cd "$REPO_DIR" && swift build -c release --product TurboFieldfareServer )
+  ( cd "$REPO_DIR" && swift build -c release --product TurboFieldfareRepack )
+  if model_installed && [ "$force" -eq 0 ]; then
+    echo "Model already installed at $TURBO_FIELDFARE_MODEL_PATH; use --force to reinstall."
+    return 0
+  fi
+  "$REPACK_BIN" --output "$TURBO_FIELDFARE_MODEL_PATH" --overwrite
+  echo "TurboFieldfare installed. Run: turbo-fieldfare start"
+}
+
+update() {
+  require_repo
+  if [ -n "$(git -C "$REPO_DIR" status --porcelain)" ]; then
+    echo "Refusing to update a checkout with local changes: $REPO_DIR" >&2
+    exit 1
+  fi
+  git -C "$REPO_DIR" pull --ff-only
+  install
+}
+
+start() {
+  require_repo
+  # Created here, not eagerly at script startup, so read-only subcommands
+  # (doctor, status, --help) never create ~/.config/turbo-fieldfare as a
+  # side effect before the repo has actually been cloned there.
+  mkdir -p "$RUNTIME_DIR"
+  if ready "$endpoint_url/health"; then
+    owner=$(backend_owner)
+    if [ "$owner" = "$TURBO_FIELDFARE_MODEL_NAME" ]; then
+      echo "TurboFieldfare is already ready at $endpoint_url"
+      return 0
+    fi
+    echo "Port $TURBO_FIELDFARE_PORT is already serving a different backend (model: ${owner:-unknown})." >&2
+    echo "TurboFieldfare shares this port with local-llm's llama-server by design; they must not run at the same time. Run: local-llm stop" >&2
+    return 1
+  fi
+  if [ ! -x "$SERVER_BIN" ]; then
+    echo "Server binary is missing. Run: turbo-fieldfare install" >&2
+    return 1
+  fi
+  if ! model_installed; then
+    echo "Model is not installed. Run: turbo-fieldfare install" >&2
+    return 1
+  fi
+  rm -f "$PID_FILE"
+  nohup "$SERVER_BIN" \
+    --model "$TURBO_FIELDFARE_MODEL_PATH" \
+    --port "$TURBO_FIELDFARE_PORT" \
+    --max-context "$TURBO_FIELDFARE_CTX_SIZE" \
+    >"$LOG_FILE" 2>&1 &
+  echo "$!" >"$PID_FILE"
+  if ! wait_ready "$endpoint_url/health" 60; then
+    pid_live "$PID_FILE" && kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    echo "TurboFieldfare did not become ready. See $LOG_FILE" >&2
+    return 1
+  fi
+  echo "TurboFieldfare started at $endpoint_url ($TURBO_FIELDFARE_MODEL_NAME)"
+}
+
+stop() {
+  if ! pid_live "$PID_FILE"; then
+    rm -f "$PID_FILE"
+    echo "TurboFieldfare is not running"
+    return 0
+  fi
+  pid=$(cat "$PID_FILE")
+  kill "$pid"
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "TurboFieldfare did not stop cleanly (PID $pid)" >&2
+    return 1
+  fi
+  rm -f "$PID_FILE"
+  echo "TurboFieldfare stopped"
+}
+
+status() {
+  echo "model: $TURBO_FIELDFARE_MODEL_NAME"
+  echo "model path: $TURBO_FIELDFARE_MODEL_PATH"
+  if model_installed; then
+    echo "model installed: yes"
+  else
+    echo "model installed: no"
+  fi
+  if ready "$endpoint_url/health"; then
+    owner=$(backend_owner)
+    if [ "$owner" = "$TURBO_FIELDFARE_MODEL_NAME" ]; then
+      echo "server: ready ($endpoint_url)"
+    else
+      echo "server: port occupied by a different backend (model: ${owner:-unknown}), likely local-llm's llama-server"
+      return 1
+    fi
+  else
+    echo "server: stopped"
+    return 1
+  fi
+}
+
+# Quick one-off questions from a terminal, without writing a --messages-file
+# JSON like the official TurboFieldfareCLI requires. Starts the server if
+# needed (status/errors go to stderr) and prints just the answer to stdout,
+# so `answer=$(turbo-fieldfare ask ...)` works cleanly in scripts.
+ask() {
+  prompt="$*"
+  if [ -z "$prompt" ]; then
+    echo "Usage: turbo-fieldfare ask <question>" >&2
+    return 2
+  fi
+  start >&2
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "model": sys.argv[1],
+    "messages": [{"role": "user", "content": sys.argv[2]}],
+    "temperature": 0.2,
+}))
+' "$TURBO_FIELDFARE_MODEL_NAME" "$prompt")
+  curl -fsS "$endpoint_url/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "$payload" |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])'
+}
+
+# Only one chat REPL is meant to run at a time: they'd otherwise fight over
+# the server's single retained prompt-cache prefix (see chat()'s own comment
+# below), each invalidating the other's cache on every turn. Terminates
+# whatever chat session is currently running -- SIGTERM, then SIGKILL after
+# a 10s grace period -- and waits for it to actually die before returning,
+# so the caller can safely claim $CHAT_PID_FILE right after.
+#
+# This only kills the *client*. TurboFieldfareServer has no request-
+# cancellation API, so if the old session was mid-generation, that request
+# keeps running server-side to completion (or --max-context) even though
+# nothing is left to read the response. The server has just one active
+# generation slot, so the new session's first request can end up queued
+# behind it -- confirmed this recovers on its own once the abandoned
+# generation finishes, never gets permanently stuck, but expect a real
+# delay (as long as that generation takes) if you interrupt mid-answer.
+close_existing_chat() {
+  if ! pid_live "$CHAT_PID_FILE"; then
+    rm -f "$CHAT_PID_FILE"
+    return 0
+  fi
+  pid=$(cat "$CHAT_PID_FILE")
+  echo "Closing existing chat session (PID $pid)..." >&2
+  kill "$pid" 2>/dev/null || true
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$CHAT_PID_FILE"
+}
+
+# Interactive multi-turn conversation. Unlike ask(), this keeps the full
+# message history in $messages (a JSON array) and resends it on every turn,
+# so the model sees prior context -- and lines up with the server's
+# single-prefix prompt reuse, which caches exactly this growing-history
+# pattern instead of re-processing the whole conversation from scratch.
+# Every network/parse failure is guarded with "if ! ...; then ...; continue"
+# rather than a bare statement, so one bad turn can't kill the whole session
+# under `set -eu`.
+#
+# History is persisted to $CHAT_HISTORY_FILE after every completed turn,
+# which is what makes --continue possible at all: a *different* process
+# can't read another process's shell variables, so "takeover" only works
+# because the old session already wrote its state to disk before this one
+# starts. In-flight turns (mid-request when closed) are never partially
+# written, so at most the unanswered question is lost, never a corrupt file.
+chat() {
+  mode=new
+  case "${1:-}" in
+    --continue) mode=continue ;;
+    --new | "") mode=new ;;
+    *)
+      echo "Usage: turbo-fieldfare chat [--new|--continue]" >&2
+      return 2
+      ;;
+  esac
+
+  mkdir -p "$RUNTIME_DIR"
+  close_existing_chat
+  echo "$$" >"$CHAT_PID_FILE"
+  trap 'rm -f "$CHAT_PID_FILE"; exit 0' INT TERM
+  trap 'rm -f "$CHAT_PID_FILE"' EXIT
+
+  start >&2
+
+  if [ "$mode" = "continue" ] && [ -s "$CHAT_HISTORY_FILE" ]; then
+    messages=$(cat "$CHAT_HISTORY_FILE")
+    turns=$(printf '%s' "$messages" | python3 -c 'import json, sys; print(len(json.load(sys.stdin)))')
+    echo "Continuing previous conversation ($turns messages)." >&2
+  else
+    if [ "$mode" = "continue" ]; then
+      echo "No previous conversation found; starting fresh." >&2
+    fi
+    messages='[]'
+    printf '[]' >"$CHAT_HISTORY_FILE"
+  fi
+
+  echo "TurboFieldfare chat -- type a message, 'clear' to reset, 'exit' or Ctrl-D to quit." >&2
+  while true; do
+    printf '%s' "> " >&2
+    if ! IFS= read -r line; then
+      echo >&2
+      break
+    fi
+    case "$line" in
+      exit | quit) break ;;
+      clear)
+        messages='[]'
+        printf '[]' >"$CHAT_HISTORY_FILE"
+        echo "(conversation cleared)" >&2
+        continue
+        ;;
+      "") continue ;;
+    esac
+
+    messages=$(python3 -c '
+import json, sys
+messages = json.loads(sys.argv[1])
+messages.append({"role": "user", "content": sys.argv[2]})
+print(json.dumps(messages))
+' "$messages" "$line")
+
+    payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "model": sys.argv[1],
+    "messages": json.loads(sys.argv[2]),
+    "temperature": 0.2,
+}))
+' "$TURBO_FIELDFARE_MODEL_NAME" "$messages")
+
+    if ! response=$(curl -fsS "$endpoint_url/v1/chat/completions" \
+      -H 'Content-Type: application/json' \
+      -d "$payload" 2>&1); then
+      echo "Request failed: $response" >&2
+      continue
+    fi
+
+    if ! answer=$(printf '%s' "$response" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])' 2>&1); then
+      echo "Could not parse response: $response" >&2
+      continue
+    fi
+
+    echo "$answer"
+    echo >&2
+
+    messages=$(python3 -c '
+import json, sys
+messages = json.loads(sys.argv[1])
+messages.append({"role": "assistant", "content": sys.argv[2]})
+print(json.dumps(messages))
+' "$messages" "$answer")
+    printf '%s' "$messages" >"$CHAT_HISTORY_FILE"
+  done
+}
+
+usage() {
+  echo "Usage: turbo-fieldfare {install [--force]|update|start|stop|restart|status|doctor|endpoint|logs|ask QUESTION|chat [--new|--continue]}" >&2
+}
+
+case "${1:-}" in
+  install) shift; install "${1:-}" ;;
+  update) update ;;
+  start) start ;;
+  stop) stop ;;
+  restart)
+    "$0" stop || true
+    "$0" start
+    ;;
+  status) status ;;
+  doctor) doctor ;;
+  endpoint) echo "$endpoint_url/v1" ;;
+  logs) echo "Server log: $LOG_FILE" ;;
+  ask) shift; ask "$@" ;;
+  chat) shift; chat "$@" ;;
+  *) usage; exit 2 ;;
+esac

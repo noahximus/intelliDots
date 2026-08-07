@@ -1,0 +1,55 @@
+#!/bin/sh
+
+set -eu
+
+usage() {
+  cat <<'EOF'
+Usage: opencode-online COMMAND [ARGUMENTS]
+
+Commands:
+  setup             Connect OpenCode to OpenAI; select ChatGPT Plus/Pro.
+  status            List configured OpenCode credentials.
+  models            List models available from OpenAI.
+  run [ARGUMENTS]   Launch normal hosted-provider OpenCode.
+  help              Show this help.
+
+Authentication is stored by OpenCode in the user's data directory and is never
+written to this configuration repository.
+EOF
+}
+
+require_opencode() {
+  if ! command -v opencode >/dev/null 2>&1; then
+    echo "opencode is not installed or is not on PATH" >&2
+    exit 1
+  fi
+}
+
+case "${1:-help}" in
+  setup)
+    require_opencode
+    echo "Connect OpenAI and select the ChatGPT Plus/Pro authentication method."
+    exec opencode auth login --provider openai
+    ;;
+  status)
+    require_opencode
+    exec opencode auth list
+    ;;
+  models)
+    require_opencode
+    exec opencode models openai
+    ;;
+  run)
+    shift
+    require_opencode
+    exec opencode "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

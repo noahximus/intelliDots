@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# Vagrant
+VAGRANT_DISABLE_VBOXSYMLINKCREATE=1

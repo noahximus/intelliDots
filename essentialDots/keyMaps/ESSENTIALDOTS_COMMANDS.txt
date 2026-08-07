@@ -1,0 +1,33 @@
+ESSENTIALDOTS COMMAND REFERENCE
+
+INSTALL AND UPDATE
+  ./install.sh                  Essential packages (default)
+  ./install.sh --full           Expanded package set
+  ./install.sh --dry-run        Simulate Stow and link migration
+  ./install.sh --stow-only      Update links only
+  ./install.sh --no-brew        Skip Homebrew
+  ./install.sh --pipx           Install Pipxfile applications
+  ./install.sh --macos-defaults Apply macOS defaults
+
+UNINSTALL
+  ./scripts/uninstall.sh --dry-run
+  ./scripts/uninstall.sh
+  ./scripts/uninstall.sh --keep-brew
+  ./scripts/uninstall.sh --keep-data
+  ./scripts/uninstall.sh --full
+
+STOW PACKAGES
+  zsh local git python aerospace borders tmux btop superfile
+
+PROJECT ENVIRONMENTS
+  venv-here                    Create .venv with automatic direnv activation
+  venv-here --python python3.12
+  node-here                    Create .nvmrc with automatic NVM switching
+  node-here --node 22.7.0
+
+OTHER INTELLIDOTS COMPONENTS
+  toolsDots/devTools/myITerm
+  toolsDots/devTools/myNvim
+  toolsDots/devTools/myVSCode
+  toolsDots/aiTools/myLocalLLM
+  toolsDots/aiTools/myOpenCode

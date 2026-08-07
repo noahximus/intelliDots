@@ -1,0 +1,9 @@
+#!/bin/sh
+
+set -eu
+
+INSTALL_ROOT="${LOCAL_LLM_INSTALL_ROOT:-$HOME/.local/share/local-llm}"
+PYTHON_BIN="${LOCAL_LLM_WRAPPER_PYTHON:-python3}"
+
+export PYTHONPATH="$INSTALL_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec "$PYTHON_BIN" -m local_llm_wrapper.cli "$@"

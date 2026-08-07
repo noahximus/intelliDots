@@ -1,0 +1,27 @@
+# macOS generated files
+.DS_Store
+**/.DS_Store
+
+# Zsh generated files and private shell state
+zsh/.config/zsh/.zcompdump*
+zsh/.config/zsh/.zsh_history
+zsh/.config/zsh/.zsh_sessions/
+zsh/.config/zsh/.zshomz-old
+
+# Machine-specific local overrides
+*.local
+*.local.*
+!local/.local/
+!local/.local/bin/
+!local/.local/bin/node-here
+zsh/.config/zsh/apps/*.local
+
+# Generated theme state
+zsh/.config/zsh/apps/themerc
+tmux/.config/tmux/theme.conf
+
+# Runtime/cache state
+.cache/
+.local/state/
+__pycache__/
+*.pyc

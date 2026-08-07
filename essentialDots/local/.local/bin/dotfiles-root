@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_path="${BASH_SOURCE[0]}"
+if [[ -L "${script_path}" ]]; then
+  link_target="$(readlink "${script_path}")"
+  if [[ "${link_target}" = /* ]]; then
+    script_path="${link_target}"
+  else
+    script_path="$(dirname "${script_path}")/${link_target}"
+  fi
+fi
+
+script_dir="$(cd -P "$(dirname "${script_path}")" && pwd -P)"
+cd "${script_dir}/../../.."
+pwd

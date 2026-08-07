@@ -1,0 +1,854 @@
+#!/bin/sh
+
+set -eu
+
+INSTALL_ROOT="${LOCAL_LLM_INSTALL_ROOT:-$HOME/.local/share/local-llm}"
+CONFIG_FILE="${LOCAL_LLM_CONFIG:-$HOME/.config/local-llm/stack.env}"
+CONFIG_DIR=$(dirname "$CONFIG_FILE")
+WRAPPER_STATE_FILE="${LOCAL_LLM_WRAPPER_STATE_FILE:-$CONFIG_DIR/enabled}"
+MODEL_STATE_FILE="${LOCAL_LLM_MODEL_STATE_FILE:-$CONFIG_DIR/selected-model}"
+PROVIDER_STATE_FILE="${LOCAL_LLM_PROVIDER_STATE_FILE:-$CONFIG_DIR/provider}"
+DATA_DIR="${LOCAL_LLM_DATA_DIR:-$HOME/Library/Application Support/local-llm}"
+LOG_DIR="${LOCAL_LLM_LOG_DIR:-$HOME/Library/Logs/local-llm}"
+BACKEND_PID_FILE="$DATA_DIR/llama-server.pid"
+WRAPPER_PID_FILE="$DATA_DIR/wrapper.pid"
+CHAT_PID_FILE="$DATA_DIR/chat.pid"
+CHAT_HISTORY_FILE="$DATA_DIR/chat-history.json"
+BACKEND_LOG="$LOG_DIR/llama-server.log"
+WRAPPER_LOG="$LOG_DIR/wrapper.log"
+BACKEND_LABEL="local.local-llm.backend"
+WRAPPER_LABEL="local.local-llm.wrapper"
+LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
+BACKEND_PLIST="$LAUNCH_AGENT_DIR/$BACKEND_LABEL.plist"
+WRAPPER_PLIST="$LAUNCH_AGENT_DIR/$WRAPPER_LABEL.plist"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$CONFIG_FILE"
+fi
+
+: "${LOCAL_LLM_MODELS_DIR:=$HOME/Models}"
+: "${LOCAL_LLM_DEFAULT_MODEL:=prism-ml/Bonsai-8B-Q1_0}"
+: "${LOCAL_LLM_MODEL_ALIAS:=local-llm}"
+: "${LOCAL_LLM_WRAPPER_AUTO_MODEL:=qwen/Qwen2.5-Coder-7B-Instruct-Q4_K_M}"
+: "${LOCAL_LLM_BACKEND_HOST:=127.0.0.1}"
+: "${LOCAL_LLM_BACKEND_PORT:=8081}"
+: "${LOCAL_LLM_WRAPPER_HOST:=127.0.0.1}"
+: "${LOCAL_LLM_WRAPPER_PORT:=8090}"
+: "${LOCAL_LLM_CTX_SIZE:=16384}"
+: "${LOCAL_LLM_THREADS:=8}"
+: "${LOCAL_LLM_PARALLEL:=1}"
+: "${LOCAL_LLM_BATCH_SIZE:=512}"
+: "${LOCAL_LLM_UBATCH_SIZE:=128}"
+: "${LOCAL_LLM_N_GPU_LAYERS:=99}"
+: "${LOCAL_LLM_WRAPPER_REPAIR_ATTEMPTS:=2}"
+: "${LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA:=1}"
+: "${LOCAL_LLM_WRAPPER_DISABLE_THINKING:=1}"
+: "${LOCAL_LLM_WRAPPER_LOG_LEVEL:=INFO}"
+
+backend_url="http://$LOCAL_LLM_BACKEND_HOST:$LOCAL_LLM_BACKEND_PORT"
+wrapper_url="http://$LOCAL_LLM_WRAPPER_HOST:$LOCAL_LLM_WRAPPER_PORT"
+
+mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+
+model_id_from_path() {
+  path=$1
+  id=${path#"$LOCAL_LLM_MODELS_DIR"/}
+  printf '%s\n' "${id%.gguf}"
+}
+
+model_label_from_id() {
+  basename "$1"
+}
+
+list_model_paths() {
+  [ -d "$LOCAL_LLM_MODELS_DIR" ] || return 0
+  find "$LOCAL_LLM_MODELS_DIR" -type f -iname '*.gguf' -print | LC_ALL=C sort
+}
+
+resolve_model() {
+  requested=$1
+  RESOLVED_MODEL_ID=""
+  RESOLVED_MODEL_PATH=""
+  [ -n "$requested" ] || return 1
+
+  exact=$requested
+  case "$exact" in
+    "$LOCAL_LLM_MODELS_DIR"/*) ;;
+    *.gguf) exact="$LOCAL_LLM_MODELS_DIR/$exact" ;;
+    *) exact="$LOCAL_LLM_MODELS_DIR/$exact.gguf" ;;
+  esac
+  if [ -f "$exact" ]; then
+    RESOLVED_MODEL_PATH=$exact
+    RESOLVED_MODEL_ID=$(model_id_from_path "$exact")
+    return 0
+  fi
+
+  requested_stem=${requested%.gguf}
+  matches=0
+  match_file=""
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/local-llm-models.XXXXXX")
+  list_model_paths >"$paths_file"
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    candidate_id=$(model_id_from_path "$candidate")
+    candidate_name=$(basename "$candidate_id")
+    if [ "$candidate_id" = "$requested_stem" ] || [ "$candidate_name" = "$requested_stem" ]; then
+      matches=$((matches + 1))
+      match_file=$candidate
+    fi
+  done <"$paths_file"
+  rm -f "$paths_file"
+
+  [ "$matches" -eq 1 ] || return 1
+  RESOLVED_MODEL_PATH=$match_file
+  RESOLVED_MODEL_ID=$(model_id_from_path "$match_file")
+}
+
+select_initial_model() {
+  candidate=$LOCAL_LLM_DEFAULT_MODEL
+  if [ -f "$MODEL_STATE_FILE" ]; then
+    saved=$(sed -n '1p' "$MODEL_STATE_FILE" | tr -d '\r\n')
+    [ -n "$saved" ] && candidate=$saved
+  fi
+  if resolve_model "$candidate"; then
+    return 0
+  fi
+  if resolve_model "$LOCAL_LLM_DEFAULT_MODEL"; then
+    return 0
+  fi
+  first=$(list_model_paths | sed -n '1p')
+  [ -n "$first" ] && resolve_model "$first"
+}
+
+set_model_state() {
+  printf '%s\n' "$1" >"$MODEL_STATE_FILE"
+}
+
+if select_initial_model; then
+  SELECTED_MODEL_ID=$RESOLVED_MODEL_ID
+  MODEL_PATH=$RESOLVED_MODEL_PATH
+  MODEL_LABEL=$(model_label_from_id "$SELECTED_MODEL_ID")
+else
+  SELECTED_MODEL_ID=$LOCAL_LLM_DEFAULT_MODEL
+  MODEL_PATH="$LOCAL_LLM_MODELS_DIR/$LOCAL_LLM_DEFAULT_MODEL.gguf"
+  MODEL_LABEL=$(model_label_from_id "$SELECTED_MODEL_ID")
+fi
+
+wrapper_enabled() {
+  [ ! -f "$WRAPPER_STATE_FILE" ] && return 0
+  state=$(tr '[:upper:]' '[:lower:]' <"$WRAPPER_STATE_FILE" | tr -d '[:space:]')
+  [ "$state" = "on" ] || [ "$state" = "enabled" ] || [ "$state" = "1" ] || [ "$state" = "true" ]
+}
+
+set_wrapper_state() {
+  printf '%s\n' "$1" >"$WRAPPER_STATE_FILE"
+}
+
+wrapper_state() {
+  if wrapper_enabled; then
+    echo "on"
+  else
+    echo "off"
+  fi
+}
+
+set_model_wrapper_default() {
+  if [ "$1" = "$LOCAL_LLM_WRAPPER_AUTO_MODEL" ] ||
+    [ "$(basename "$1")" = "$(basename "$LOCAL_LLM_WRAPPER_AUTO_MODEL")" ]; then
+    set_wrapper_state on
+    echo "Wrapper default: on (Qwen 2.5)"
+  else
+    set_wrapper_state off
+    echo "Wrapper default: off"
+  fi
+}
+
+# Picks which backend local-llm's commands act on. "llama" (the default,
+# unchanged behavior) drives llama-server directly; "turbo" delegates to the
+# separate turbo-fieldfare CLI instead of reimplementing its build/model
+# logic here.
+active_provider() {
+  if [ -f "$PROVIDER_STATE_FILE" ]; then
+    saved=$(tr -d '[:space:]' <"$PROVIDER_STATE_FILE")
+    if [ "$saved" = "turbo" ]; then
+      echo "turbo"
+      return
+    fi
+  fi
+  echo "llama"
+}
+
+set_provider_state() {
+  printf '%s\n' "$1" >"$PROVIDER_STATE_FILE"
+}
+
+require_turbo_fieldfare() {
+  if ! command -v turbo-fieldfare >/dev/null 2>&1; then
+    echo "turbo-fieldfare is not installed or not on PATH." >&2
+    return 1
+  fi
+}
+
+ready() {
+  curl -fsS --max-time 1 "$1" >/dev/null 2>&1
+}
+
+# TurboFieldfare shares this backend port by design and also serves
+# /v1/models, so a bare readiness check can't tell them apart. Compare the
+# model id llama-server reports (its --alias) against what we expect.
+backend_owner() {
+  curl -fsS --max-time 1 "$backend_url/v1/models" 2>/dev/null |
+    grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 |
+    sed -E 's/.*"([^"]*)"$/\1/'
+}
+
+pid_live() {
+  file=$1
+  [ -f "$file" ] || return 1
+  pid=$(cat "$file" 2>/dev/null || true)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+wait_ready() {
+  url=$1
+  attempts=$2
+  count=0
+  while [ "$count" -lt "$attempts" ]; do
+    ready "$url" && return 0
+    count=$((count + 1))
+    sleep 1
+  done
+  return 1
+}
+
+launchd_available() {
+  [ "$(uname -s)" = "Darwin" ] &&
+    command -v launchctl >/dev/null 2>&1 &&
+    [ -f "$BACKEND_PLIST" ] &&
+    [ -f "$WRAPPER_PLIST" ]
+}
+
+launch_service() {
+  label=$1
+  plist=$2
+  domain="gui/$(id -u)"
+  attempt=1
+  while [ "$attempt" -le 15 ]; do
+    if ! launchctl print "$domain/$label" >/dev/null 2>&1; then
+      launchctl bootstrap "$domain" "$plist" >/dev/null 2>&1 || true
+    fi
+    if launchctl print "$domain/$label" >/dev/null 2>&1 &&
+      launchctl kickstart -k "$domain/$label" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  echo "Could not register and start $label with launchd after 15 attempts" >&2
+  return 1
+}
+
+stop_service() {
+  label=$1
+  domain="gui/$(id -u)"
+  if launchctl print "$domain/$label" >/dev/null 2>&1; then
+    launchctl bootout "$domain/$label"
+    echo "$label stopped"
+  else
+    echo "$label is not running"
+  fi
+}
+
+stop_pid() {
+  label=$1
+  file=$2
+  if ! pid_live "$file"; then
+    rm -f "$file"
+    echo "$label is not running"
+    return 0
+  fi
+  pid=$(cat "$file")
+  kill "$pid"
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "$label did not stop cleanly (PID $pid)" >&2
+    return 1
+  fi
+  rm -f "$file"
+  echo "$label stopped"
+}
+
+stop_wrapper() {
+  if launchd_available; then
+    stop_service "$WRAPPER_LABEL"
+  else
+    stop_pid "Tool wrapper" "$WRAPPER_PID_FILE"
+  fi
+}
+
+start_backend() {
+  if ready "$backend_url/v1/models"; then
+    owner=$(backend_owner)
+    if [ "$owner" = "$LOCAL_LLM_MODEL_ALIAS" ]; then
+      echo "Local LLM backend is already ready at $backend_url ($SELECTED_MODEL_ID)"
+      return 0
+    fi
+    echo "Port $LOCAL_LLM_BACKEND_PORT is already serving a different backend (model: ${owner:-unknown})." >&2
+    echo "This port is shared with TurboFieldfare by design; they must not run at the same time. Run: turbo-fieldfare stop" >&2
+    return 1
+  fi
+  if ! command -v llama-server >/dev/null 2>&1; then
+    echo "llama-server is not installed. Run: brew install llama.cpp" >&2
+    return 1
+  fi
+  if [ ! -f "$MODEL_PATH" ]; then
+    echo "Model not found: $MODEL_PATH" >&2
+    return 1
+  fi
+  if launchd_available; then
+    launch_service "$BACKEND_LABEL" "$BACKEND_PLIST"
+    if ! wait_ready "$backend_url/v1/models" 60; then
+      echo "Local LLM backend did not become ready. See $BACKEND_LOG" >&2
+      return 1
+    fi
+    echo "Local LLM backend started at $backend_url ($SELECTED_MODEL_ID)"
+    return 0
+  fi
+  rm -f "$BACKEND_PID_FILE"
+  nohup llama-server \
+    --model "$MODEL_PATH" \
+    --alias "$LOCAL_LLM_MODEL_ALIAS" \
+    --host "$LOCAL_LLM_BACKEND_HOST" \
+    --port "$LOCAL_LLM_BACKEND_PORT" \
+    --ctx-size "$LOCAL_LLM_CTX_SIZE" \
+    --threads "$LOCAL_LLM_THREADS" \
+    --parallel "$LOCAL_LLM_PARALLEL" \
+    --batch-size "$LOCAL_LLM_BATCH_SIZE" \
+    --ubatch-size "$LOCAL_LLM_UBATCH_SIZE" \
+    --n-gpu-layers "$LOCAL_LLM_N_GPU_LAYERS" \
+    --jinja \
+    >"$BACKEND_LOG" 2>&1 &
+  echo "$!" >"$BACKEND_PID_FILE"
+  if ! wait_ready "$backend_url/v1/models" 60; then
+    pid_live "$BACKEND_PID_FILE" && kill "$(cat "$BACKEND_PID_FILE")" 2>/dev/null || true
+    rm -f "$BACKEND_PID_FILE"
+    echo "Local LLM backend did not become ready. See $BACKEND_LOG" >&2
+    return 1
+  fi
+  echo "Local LLM backend started at $backend_url ($SELECTED_MODEL_ID)"
+}
+
+start_wrapper() {
+  if ! wrapper_enabled; then
+    echo "Tool wrapper is disabled; clients will use $backend_url directly"
+    return 0
+  fi
+  if ready "$wrapper_url/health"; then
+    echo "Tool wrapper is already ready at $wrapper_url"
+    return 0
+  fi
+  if [ ! -x "$HOME/.local/bin/local-llm-wrapper" ]; then
+    echo "local-llm-wrapper launcher is not installed" >&2
+    return 1
+  fi
+  if launchd_available; then
+    launch_service "$WRAPPER_LABEL" "$WRAPPER_PLIST"
+    if ! wait_ready "$wrapper_url/health" 15; then
+      echo "Tool wrapper did not become ready. See $WRAPPER_LOG" >&2
+      return 1
+    fi
+    echo "Tool wrapper started at $wrapper_url"
+    return 0
+  fi
+  rm -f "$WRAPPER_PID_FILE"
+  LOCAL_LLM_WRAPPER_BACKEND="$backend_url" \
+  LOCAL_LLM_WRAPPER_REPAIR_ATTEMPTS="$LOCAL_LLM_WRAPPER_REPAIR_ATTEMPTS" \
+  LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA="$LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA" \
+  LOCAL_LLM_WRAPPER_DISABLE_THINKING="$LOCAL_LLM_WRAPPER_DISABLE_THINKING" \
+  LOCAL_LLM_WRAPPER_LOG_LEVEL="$LOCAL_LLM_WRAPPER_LOG_LEVEL" \
+    nohup "$HOME/.local/bin/local-llm-wrapper" \
+      --host "$LOCAL_LLM_WRAPPER_HOST" \
+      --port "$LOCAL_LLM_WRAPPER_PORT" \
+      --backend "$backend_url" \
+      >"$WRAPPER_LOG" 2>&1 &
+  echo "$!" >"$WRAPPER_PID_FILE"
+  if ! wait_ready "$wrapper_url/health" 15; then
+    pid_live "$WRAPPER_PID_FILE" && kill "$(cat "$WRAPPER_PID_FILE")" 2>/dev/null || true
+    rm -f "$WRAPPER_PID_FILE"
+    echo "Tool wrapper did not become ready. See $WRAPPER_LOG" >&2
+    return 1
+  fi
+  echo "Tool wrapper started at $wrapper_url"
+}
+
+# Extracted out of the "start" case arm so ask()/chat() can ensure the
+# backend is up without duplicating the wrapper on/off decision.
+start() {
+  start_backend
+  if wrapper_enabled; then
+    start_wrapper
+  else
+    stop_wrapper
+    echo "Tool wrapper bypass is active"
+  fi
+}
+
+status() {
+  failed=0
+  echo "provider: llama"
+  echo "model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
+  echo "model path: $MODEL_PATH"
+  if ready "$backend_url/v1/models"; then
+    owner=$(backend_owner)
+    if [ "$owner" = "$LOCAL_LLM_MODEL_ALIAS" ]; then
+      echo "backend: ready ($backend_url)"
+    else
+      echo "backend: port occupied by a different backend (model: ${owner:-unknown}), likely TurboFieldfare"
+      failed=1
+    fi
+  else
+    echo "backend: stopped"
+    failed=1
+  fi
+  if wrapper_enabled; then
+    echo "wrapper mode: on"
+    if ready "$wrapper_url/health"; then
+      echo "wrapper: ready ($wrapper_url)"
+    else
+      echo "wrapper: stopped"
+      failed=1
+    fi
+  else
+    echo "wrapper mode: off"
+    echo "wrapper: bypassed (client -> $backend_url)"
+  fi
+  return "$failed"
+}
+
+doctor() {
+  failed=0
+  echo "provider: llama"
+  for command in python3 curl find llama-server; do
+    if command -v "$command" >/dev/null 2>&1; then
+      echo "$command: $(command -v "$command")"
+    else
+      echo "$command: missing"
+      failed=1
+    fi
+  done
+  echo "models directory: $LOCAL_LLM_MODELS_DIR"
+  echo "selected model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
+  if [ -f "$MODEL_PATH" ]; then
+    echo "selected model file: $MODEL_PATH"
+  else
+    echo "selected model file: missing ($MODEL_PATH)"
+    failed=1
+  fi
+  if [ -d "$INSTALL_ROOT/local_llm_wrapper" ]; then
+    echo "wrapper package: $INSTALL_ROOT"
+  else
+    echo "wrapper package: missing"
+    failed=1
+  fi
+  if launchd_available; then
+    echo "service manager: launchd"
+  else
+    echo "service manager: background-process fallback"
+  fi
+  wrapper_enabled && echo "wrapper mode: on" || echo "wrapper mode: off"
+  return "$failed"
+}
+
+# Only one chat REPL is meant to run at a time: two would otherwise pile
+# concurrent requests against the same backend and stomp on each other's
+# conversation expectations. Terminates whatever local-llm chat session is
+# currently running -- SIGTERM, then SIGKILL after a 10s grace period -- and
+# waits for it to actually die before returning, so the caller can safely
+# claim $CHAT_PID_FILE right after. Mirrors turbo-fieldfare's own
+# close_existing_chat(); each provider's chat sessions are tracked and
+# closed independently of the other's, since the two backends can't run at
+# the same time anyway.
+close_existing_chat() {
+  if ! pid_live "$CHAT_PID_FILE"; then
+    rm -f "$CHAT_PID_FILE"
+    return 0
+  fi
+  pid=$(cat "$CHAT_PID_FILE")
+  echo "Closing existing chat session (PID $pid)..." >&2
+  kill "$pid" 2>/dev/null || true
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$CHAT_PID_FILE"
+}
+
+# Quick one-off question against whichever llama model is currently
+# selected. Goes straight to $backend_url rather than through the tool-call
+# wrapper -- there are no tools involved in a plain question, so the
+# wrapper would only add latency for nothing. Mirrors turbo-fieldfare's ask().
+ask() {
+  prompt="$*"
+  if [ -z "$prompt" ]; then
+    echo "Usage: local-llm ask <question>" >&2
+    return 2
+  fi
+  start >&2
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "model": sys.argv[1],
+    "messages": [{"role": "user", "content": sys.argv[2]}],
+    "temperature": 0.2,
+}))
+' "$LOCAL_LLM_MODEL_ALIAS" "$prompt")
+  curl -fsS "$backend_url/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d "$payload" |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])'
+}
+
+# Interactive multi-turn conversation against whichever llama model is
+# currently selected. Same design as turbo-fieldfare's chat(): full history
+# resent every turn (also bypassing the wrapper, for the same reason as
+# ask()), persisted to $CHAT_HISTORY_FILE after every completed turn so
+# --continue can resume it from a fresh process -- a new process can't read
+# another process's shell variables, so disk is the only way that works at
+# all. Every network/parse failure is guarded with "if ! ...; then
+# ...; continue" rather than a bare statement, so one bad turn can't kill
+# the whole session under `set -eu`.
+chat() {
+  mode=new
+  case "${1:-}" in
+    --continue) mode=continue ;;
+    --new | "") mode=new ;;
+    *)
+      echo "Usage: local-llm chat [--new|--continue]" >&2
+      return 2
+      ;;
+  esac
+
+  close_existing_chat
+  echo "$$" >"$CHAT_PID_FILE"
+  trap 'rm -f "$CHAT_PID_FILE"; exit 0' INT TERM
+  trap 'rm -f "$CHAT_PID_FILE"' EXIT
+
+  start >&2
+
+  if [ "$mode" = "continue" ] && [ -s "$CHAT_HISTORY_FILE" ]; then
+    messages=$(cat "$CHAT_HISTORY_FILE")
+    turns=$(printf '%s' "$messages" | python3 -c 'import json, sys; print(len(json.load(sys.stdin)))')
+    echo "Continuing previous conversation ($turns messages)." >&2
+  else
+    if [ "$mode" = "continue" ]; then
+      echo "No previous conversation found; starting fresh." >&2
+    fi
+    messages='[]'
+    printf '[]' >"$CHAT_HISTORY_FILE"
+  fi
+
+  echo "local-llm chat ($SELECTED_MODEL_ID) -- type a message, 'clear' to reset, 'exit' or Ctrl-D to quit." >&2
+  while true; do
+    printf '%s' "> " >&2
+    if ! IFS= read -r line; then
+      echo >&2
+      break
+    fi
+    case "$line" in
+      exit | quit) break ;;
+      clear)
+        messages='[]'
+        printf '[]' >"$CHAT_HISTORY_FILE"
+        echo "(conversation cleared)" >&2
+        continue
+        ;;
+      "") continue ;;
+    esac
+
+    messages=$(python3 -c '
+import json, sys
+messages = json.loads(sys.argv[1])
+messages.append({"role": "user", "content": sys.argv[2]})
+print(json.dumps(messages))
+' "$messages" "$line")
+
+    payload=$(python3 -c '
+import json, sys
+print(json.dumps({
+    "model": sys.argv[1],
+    "messages": json.loads(sys.argv[2]),
+    "temperature": 0.2,
+}))
+' "$LOCAL_LLM_MODEL_ALIAS" "$messages")
+
+    if ! response=$(curl -fsS "$backend_url/v1/chat/completions" \
+      -H 'Content-Type: application/json' \
+      -d "$payload" 2>&1); then
+      echo "Request failed: $response" >&2
+      continue
+    fi
+
+    if ! answer=$(printf '%s' "$response" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["choices"][0]["message"]["content"])' 2>&1); then
+      echo "Could not parse response: $response" >&2
+      continue
+    fi
+
+    echo "$answer"
+    echo >&2
+
+    messages=$(python3 -c '
+import json, sys
+messages = json.loads(sys.argv[1])
+messages.append({"role": "assistant", "content": sys.argv[2]})
+print(json.dumps(messages))
+' "$messages" "$answer")
+    printf '%s' "$messages" >"$CHAT_HISTORY_FILE"
+  done
+}
+
+model_list() {
+  format=${1:-human}
+  found=0
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/local-llm-models.XXXXXX")
+  list_model_paths >"$paths_file"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    found=1
+    id=$(model_id_from_path "$path")
+    selected=0
+    [ "$id" = "$SELECTED_MODEL_ID" ] && selected=1
+    if [ "$format" = "--porcelain" ]; then
+      printf '%s\t%s\t%s\n' "$selected" "$id" "$path"
+    else
+      marker=" "
+      [ "$selected" -eq 1 ] && marker="*"
+      printf '%s %s\n  path: %s\n' "$marker" "$id" "$path"
+    fi
+  done <"$paths_file"
+  rm -f "$paths_file"
+  if [ "$found" -eq 0 ]; then
+    echo "No GGUF models found under $LOCAL_LLM_MODELS_DIR" >&2
+    return 1
+  fi
+}
+
+usage() {
+  echo "Usage: local-llm {start|stop|restart|status|doctor|endpoint|logs|ask QUESTION|chat [--new|--continue]|provider {status|use {llama|turbo}}|wrapper {on|off|toggle|status}|model {list [--porcelain]|status|use MODEL}}" >&2
+}
+
+# When the active provider is turbo, every command except "provider" itself
+# (and the launchd-invoked internals) either delegates to turbo-fieldfare or
+# refuses clearly -- it never falls through to the llama-specific logic
+# below.
+case "${1:-}" in
+  provider | _serve-backend | _serve-wrapper) ;;
+  *)
+    if [ "$(active_provider)" = "turbo" ]; then
+      require_turbo_fieldfare || exit 1
+      case "${1:-}" in
+        start | stop | restart | status | endpoint | logs | doctor | ask | chat)
+          echo "provider: turbo" >&2
+          exec turbo-fieldfare "$@"
+          ;;
+        wrapper)
+          echo "The tool-call-repair wrapper only applies to the llama provider (TurboFieldfare parses its own tool calls)." >&2
+          echo "Switch first: local-llm provider use llama" >&2
+          exit 1
+          ;;
+        model)
+          echo "TurboFieldfare is a single fixed model; there is no catalog to switch." >&2
+          echo "Switch provider first: local-llm provider use llama" >&2
+          exit 1
+          ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
+    fi
+    ;;
+esac
+
+case "${1:-}" in
+  start) start ;;
+  stop)
+    if launchd_available; then
+      stop_service "$WRAPPER_LABEL"
+      stop_service "$BACKEND_LABEL"
+    else
+      stop_pid "Tool wrapper" "$WRAPPER_PID_FILE"
+      stop_pid "Local LLM backend" "$BACKEND_PID_FILE"
+    fi
+    ;;
+  restart)
+    "$0" stop || true
+    "$0" start
+    ;;
+  status) status ;;
+  doctor) doctor ;;
+  endpoint)
+    if wrapper_enabled; then
+      echo "$wrapper_url"
+    else
+      echo "$backend_url"
+    fi
+    ;;
+  logs)
+    echo "Backend log: $BACKEND_LOG"
+    echo "Wrapper log: $WRAPPER_LOG"
+    ;;
+  ask) shift; ask "$@" ;;
+  chat) shift; chat "$@" ;;
+  provider)
+    case "${2:-status}" in
+      status) active_provider ;;
+      use)
+        target=${3:-}
+        case "$target" in
+          llama | turbo) ;;
+          *)
+            echo "Usage: local-llm provider use {llama|turbo}" >&2
+            exit 2
+            ;;
+        esac
+        if [ "$target" = "turbo" ]; then
+          require_turbo_fieldfare || exit 1
+        fi
+        current=$(active_provider)
+        if [ "$target" = "$current" ]; then
+          echo "Provider is already $target"
+          exit 0
+        fi
+        was_running=0
+        if [ "$current" = "turbo" ]; then
+          if turbo-fieldfare status >/dev/null 2>&1; then
+            was_running=1
+          fi
+          turbo-fieldfare stop || true
+        else
+          if ready "$backend_url/v1/models"; then
+            was_running=1
+          fi
+          "$0" stop || true
+        fi
+        set_provider_state "$target"
+        echo "Provider set to $target"
+        if [ "$was_running" -eq 1 ]; then
+          "$0" start
+        fi
+        ;;
+      *)
+        echo "Usage: local-llm provider {status|use {llama|turbo}}" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  wrapper)
+    case "${2:-status}" in
+      on)
+        set_wrapper_state on
+        start_backend
+        start_wrapper
+        echo "Wrapper mode is on; malformed tool calls will be repaired when detected"
+        ;;
+      off)
+        set_wrapper_state off
+        stop_wrapper
+        echo "Wrapper mode is off; clients will connect directly to $backend_url"
+        ;;
+      toggle)
+        if wrapper_enabled; then "$0" wrapper off; else "$0" wrapper on; fi
+        ;;
+      status)
+        if wrapper_enabled; then echo "on"; else echo "off"; fi
+        ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  model)
+    case "${2:-status}" in
+      list) model_list "${3:-human}" ;;
+      status)
+        echo "$SELECTED_MODEL_ID"
+        echo "$MODEL_LABEL"
+        echo "$MODEL_PATH"
+        ;;
+      use)
+        requested=${3:-}
+        if ! resolve_model "$requested"; then
+          echo "Unknown or ambiguous model: $requested" >&2
+          echo "Use 'local-llm model list' to see available model IDs." >&2
+          exit 2
+        fi
+        requested_id=$RESOLVED_MODEL_ID
+        previous_id=$SELECTED_MODEL_ID
+        previous_wrapper_state=$(wrapper_state)
+        same_model_running=0
+        if [ "$requested_id" = "$SELECTED_MODEL_ID" ] && ready "$backend_url/v1/models"; then
+          same_model_running=1
+        fi
+        set_model_state "$requested_id"
+        echo "Selected model: $requested_id"
+        set_model_wrapper_default "$requested_id"
+        if [ "$same_model_running" -eq 1 ]; then
+          if wrapper_enabled; then
+            start_wrapper
+          else
+            stop_wrapper
+          fi
+          exit 0
+        fi
+        "$0" stop || true
+        if "$0" start; then
+          exit 0
+        fi
+        echo "Model failed to start; restoring $previous_id" >&2
+        set_model_state "$previous_id"
+        set_wrapper_state "$previous_wrapper_state"
+        "$0" start || true
+        exit 1
+        ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  _serve-backend)
+    exec llama-server \
+      --model "$MODEL_PATH" \
+      --alias "$LOCAL_LLM_MODEL_ALIAS" \
+      --host "$LOCAL_LLM_BACKEND_HOST" \
+      --port "$LOCAL_LLM_BACKEND_PORT" \
+      --ctx-size "$LOCAL_LLM_CTX_SIZE" \
+      --threads "$LOCAL_LLM_THREADS" \
+      --parallel "$LOCAL_LLM_PARALLEL" \
+      --batch-size "$LOCAL_LLM_BATCH_SIZE" \
+      --ubatch-size "$LOCAL_LLM_UBATCH_SIZE" \
+      --n-gpu-layers "$LOCAL_LLM_N_GPU_LAYERS" \
+      --jinja
+    ;;
+  _serve-wrapper)
+    if ! wrapper_enabled; then
+      echo "Wrapper mode is off; service will not start"
+      exit 0
+    fi
+    export LOCAL_LLM_WRAPPER_BACKEND="$backend_url"
+    export LOCAL_LLM_WRAPPER_REPAIR_ATTEMPTS
+    export LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA
+    export LOCAL_LLM_WRAPPER_DISABLE_THINKING
+    export LOCAL_LLM_WRAPPER_LOG_LEVEL
+    exec "$HOME/.local/bin/local-llm-wrapper" \
+      --host "$LOCAL_LLM_WRAPPER_HOST" \
+      --port "$LOCAL_LLM_WRAPPER_PORT" \
+      --backend "$backend_url"
+    ;;
+  *) usage; exit 2 ;;
+esac
