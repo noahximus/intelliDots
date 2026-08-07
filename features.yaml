@@ -29,8 +29,8 @@ nodes:
   - id: essentialDots
     path: essentialDots
     options:
-      macos-defaults: false
-      pipx: false
+      macos-defaults: true
+      pipx: true
 
   - id: toolsDots.devTools.iTerm
     path: toolsDots/devTools/iTerm

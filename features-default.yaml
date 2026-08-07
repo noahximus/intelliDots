@@ -10,3 +10,5 @@ nodes:
   - id: toolsDots.devTools.tmux
   - id: toolsDots.devTools.superfile
   - id: toolsDots.aiTools.aiApps
+  - id: toolsDots.aiTools.localLLM
+  - id: toolsDots.aiTools.opencode
