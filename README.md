@@ -8,10 +8,11 @@ required.
 
 ```
 intelliDots/
-  features.yaml            # selection manifest read by install.sh
+  features.yaml            # master node registry: path + default options per node
+  features-default.yaml    # selection: what a plain ./install.sh installs
+  features-essential.yaml  # selection: every node, essential profile
+  features-all.yaml        # selection: every node, full profile
   install.sh  uninstall.sh  status.sh  update.sh  bootstrap.sh  publish-configs.sh
-  install-essential.sh     # fixed choice: every node, essential profile
-  install-everything.sh    # fixed choice: every node, full profile
   essentialDots/           # core shell, Git, macOS tools, general config
   toolsDots/
     devTools/
@@ -36,22 +37,23 @@ its own packages, files, state, and documentation.
 ./install.sh
 ```
 
-Installs the nodes marked `default: true` in `features.yaml` (`essentialDots`,
-`iTerm`, `nvim`, `tmux`, `superfile`, `aiApps`) at the essential profile.
-Optional nodes (`vsCode`, `localLLM`, `opencode`) are opt-in:
+With no `--file`, installs every node listed in `features-default.yaml`
+(`essentialDots`, `iTerm`, `nvim`, `tmux`, `superfile`, `aiApps`) at the
+essential profile. Pick a different selection file for a different set:
 
 ```bash
-./install.sh --only toolsDots.aiTools.localLLM
-./install.sh --all                    # every node, not just the defaults
-./install.sh --list                   # show every node and its default flag
+./install.sh --file features-essential.yaml   # every node, essential profile
+./install.sh --file features-all.yaml         # every node, full profile
+./install.sh --file features-essential.yaml --list   # preview the resolved plan
+./install.sh --only toolsDots.aiTools.localLLM        # narrow within a selection
 ./install.sh --skip toolsDots.devTools.vsCode
 ./install.sh --dry-run
-./install.sh --full
 ```
 
-`install-essential.sh` and `install-everything.sh` are fixed-choice wrappers
-(every node, no picking) -- use `install.sh` directly for anything more
-selective.
+Write your own `features-*.yaml` for anything else -- it only needs a
+`profile:` and a `nodes:` list of ids; see `features.yaml` (the master
+registry) for the available ids, and the "features.yaml" section below for
+the file format.
 
 ### One-file fresh-Mac bootstrap
 
@@ -68,22 +70,20 @@ chmod +x "$HOME/Downloads/bootstrap.sh"
 ./bootstrap.sh --root "$HOME/Developer/myConfigs"
 ```
 
-## `features.yaml`
+## `features.yaml` and selection files
 
-An ordered list of installable nodes; each points at a directory relative to
-this file, no repository URL, since everything is one checkout:
+Two tiers. `features.yaml` is the master registry -- every node's `path` and
+default `options`, plus AI nodes' `nvim_integration` metadata:
 
 ```yaml
 nodes:
   - id: essentialDots
     path: essentialDots
-    default: true
     options:
       macos-defaults: false
       pipx: false
   - id: toolsDots.aiTools.localLLM
     path: toolsDots/aiTools/localLLM
-    default: false
     options:
       with-local-llm: true
       with-turbo-fieldfare: false
@@ -91,19 +91,38 @@ nodes:
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
 ```
 
-`install.sh` installs nodes top-to-bottom; `uninstall.sh` uninstalls
-bottom-to-top. `nvim_integration*` fields are descriptive only -- see below.
+`install.sh` is never pointed at `features.yaml` directly -- it takes a
+**selection file** via `--file` (`features-default.yaml` if omitted), which
+just lists which node ids to install, in order, plus an optional top-level
+`profile:` and per-node `options` overrides:
 
-A node's `options` map is forwarded to its own `install.sh` as `--<key>`
-whenever the value is `true` -- this is what decides, for example, whether
+```yaml
+profile: essential
+nodes:
+  - id: essentialDots
+    options:
+      macos-defaults: true
+      pipx: true
+  - id: toolsDots.aiTools.localLLM
+```
+
+Each id's `path` and default `options` still come from `features.yaml`; the
+selection file only needs to override what it wants different. Nodes install
+in the selection file's order, top-to-bottom. `uninstall.sh` reads
+`features.yaml` directly rather than a selection file -- it defaults to
+uninstalling every node, bottom-to-top. `nvim_integration*` fields are
+descriptive only -- see below.
+
+A node's effective `options` are `features.yaml`'s defaults, overridden
+key-by-key by the selection file's own `options` for that node, overridden
+again by a matching `--macos-defaults` / `--pipx` / `--with-turbo-fieldfare`
+CLI flag for a single run. Each `true` key gets forwarded to that node's own
+`install.sh` as `--<key>` -- this is what decides, for example, whether
 `localLLM` installs the llama.cpp backend, TurboFieldfare, both, or neither.
-Edit the values in this file to change what a plain `./install.sh` does by
-default; `--macos-defaults`, `--pipx`, and `--with-turbo-fieldfare` remain
-available as one-off overrides that force the matching option on without
-editing the file:
 
 ```bash
 ./install.sh --only toolsDots.aiTools.localLLM --with-turbo-fieldfare
+./install.sh --file features-essential.yaml --list   # preview without installing
 ```
 
 ## AI tools automatically customize Neovim (and skip cleanly without it)

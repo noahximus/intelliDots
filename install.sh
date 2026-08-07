@@ -12,10 +12,11 @@ done
 ROOT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
 MANIFEST="${ROOT_DIR}/features.yaml"
 
-profile=essential
+cli_profile=""
+selection_file="${ROOT_DIR}/features-default.yaml"
 dry_run=false
 bootstrap=true
-all_nodes=false
+list_requested=false
 continue_on_error=true
 declare -a only=() skipped=() forced_options=()
 declare -a succeeded=() failed=()
@@ -24,35 +25,37 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh [options]
 
-Installs the components selected in features.yaml. Nodes marked `default:
-true` (essentialDots, iTerm, nvim, tmux, superfile) install unless narrowed
-with --only; --all additionally installs every optional node (vsCode,
-localLLM, opencode).
+Installs the nodes listed in a selection file -- features-default.yaml
+(the default), features-essential.yaml (every node, essential profile,
+replaces the old install-essential.sh), features-all.yaml (every node,
+full profile, replaces the old install-everything.sh), or a file of your
+own. A selection file just lists node ids (+ optional profile and per-node
+option overrides); each id's path and default options come from
+features.yaml, the master registry.
 
 Each node may declare an `options` map in features.yaml (booleans forwarded
-as `--<key>` to that node's own install.sh). Edit features.yaml to change
-what a plain ./install.sh does by default -- e.g. localLLM's with-local-llm
-and with-turbo-fieldfare, or essentialDots' macos-defaults and pipx. The
-flags below force a matching option on for a single run without editing
-the file.
+as `--<key>` to that node's own install.sh). A selection file's own options
+for a node override features.yaml's key-by-key. The flags below force a
+matching option on for a single run on top of both, without editing either
+file.
 
 Options:
-  --essential           Install each component's essential profile (default).
-  --full                Install each component's full profile.
-  --all                 Install every node in features.yaml, not just the
-                         defaults.
-  --only ID             Install only this node; may be repeated. Overrides
-                         --all and the default selection.
-  --skip ID             Skip a node; may be repeated.
-  --list                List configured nodes (id, path, default, options) and exit.
-  --no-bootstrap        Do not install Homebrew/yq when missing.
-  --macos-defaults      Force essentialDots' macos-defaults option on for this run.
-  --pipx                Force essentialDots' pipx option on for this run.
+  --file PATH           Selection file to install from. Relative names are
+                         resolved from this checkout. Default: features-default.yaml
+  --essential           Force the essential profile for every node this run.
+  --full                Force the full profile for every node this run.
+  --only ID              Install only this node from the selection; may be
+                         repeated.
+  --skip ID              Skip a node from the selection; may be repeated.
+  --list                 List the selection file's resolved plan and exit.
+  --no-bootstrap         Do not install Homebrew/yq when missing.
+  --macos-defaults       Force essentialDots' macos-defaults option on for this run.
+  --pipx                 Force essentialDots' pipx option on for this run.
   --with-turbo-fieldfare Force localLLM's with-turbo-fieldfare option on for this run.
-  --continue-on-error   Continue after a node fails (default).
-  --stop-on-error       Stop at the first failing node instead.
-  --dry-run             Show what would run without changing anything.
-  -h, --help            Show this help.
+  --continue-on-error    Continue after a node fails (default).
+  --stop-on-error        Stop at the first failing node instead.
+  --dry-run              Show what would run without changing anything.
+  -h, --help             Show this help.
 EOF
 }
 
@@ -62,11 +65,18 @@ is_in() {
   return 1
 }
 
+resolve_file() {
+  local requested="$1"
+  if [[ "${requested}" = /* ]]; then printf '%s' "${requested}";
+  else printf '%s' "${ROOT_DIR}/${requested}"; fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --essential) profile=essential ;;
-    --full) profile=full ;;
-    --all) all_nodes=true ;;
+    --file) shift; [[ $# -gt 0 ]] || { echo "--file requires a path" >&2; exit 2; }; selection_file="$(resolve_file "$1")" ;;
+    --file=*) selection_file="$(resolve_file "${1#*=}")" ;;
+    --essential) cli_profile=essential ;;
+    --full) cli_profile=full ;;
     --only) shift; [[ $# -gt 0 ]] || { echo "--only requires a node id" >&2; exit 2; }; only+=("$1") ;;
     --only=*) only+=("${1#*=}") ;;
     --skip) shift; [[ $# -gt 0 ]] || { echo "--skip requires a node id" >&2; exit 2; }; skipped+=("$1") ;;
@@ -78,11 +88,7 @@ while [[ $# -gt 0 ]]; do
     --continue-on-error) continue_on_error=true ;;
     --stop-on-error) continue_on_error=false ;;
     --dry-run) dry_run=true ;;
-    --list)
-      command -v yq >/dev/null 2>&1 || { echo "yq is required (brew install yq)." >&2; exit 1; }
-      yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | "\(.id)\t\(.path)\tdefault=\(.default)\toptions=\(.options // {} | to_entries | map("\(.key)=\(.value)") | join(","))"'
-      exit 0
-      ;;
+    --list) list_requested=true ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -90,6 +96,67 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -f "${MANIFEST}" ]] || { echo "Missing manifest: ${MANIFEST}" >&2; exit 1; }
+[[ -f "${selection_file}" ]] || { echo "Missing selection file: ${selection_file}" >&2; exit 1; }
+
+# Looks up a node's `path` from the master registry (features.yaml) by id.
+master_node_path() {
+  yq -o=json ".nodes[] | select(.id == \"$1\") | .path" "${MANIFEST}" | jq -r '.'
+}
+
+# Looks up a node's `options` map from the master registry by id, as compact JSON.
+master_node_options() {
+  yq -o=json ".nodes[] | select(.id == \"$1\") | .options // {}" "${MANIFEST}" | jq -c '.'
+}
+
+# Reads the selection file's top-level profile, if any (empty otherwise).
+selection_profile() {
+  yq -o=json '.profile // ""' "${selection_file}" | jq -r '.'
+}
+
+# Reads node ids from the selection file, in file order.
+selection_node_ids() {
+  yq -o=json '.nodes' "${selection_file}" | jq -r '.[].id'
+}
+
+# Reads a node's inline options override from the selection file, as compact JSON.
+selection_node_options() {
+  yq -o=json ".nodes[] | select(.id == \"$1\") | .options // {}" "${selection_file}" | jq -c '.'
+}
+
+# Prints a node's option keys whose effective value is true: features.yaml's
+# default, overridden key-by-key by the selection file's own options for
+# that node, overridden again by a matching --<key> CLI flag (forced_options)
+# -- one key per line.
+node_true_options() {
+  local id="$1" key value merged
+  merged="$(jq -c -s '.[0] * .[1]' <(master_node_options "${id}") <(selection_node_options "${id}"))"
+  while IFS=$'\t' read -r key value; do
+    [[ -n "${key}" ]] || continue
+    if [[ "${value}" == "true" ]]; then
+      printf '%s\n' "${key}"
+    elif [[ "${#forced_options[@]}" -gt 0 ]] && is_in "${key}" "${forced_options[@]}"; then
+      printf '%s\n' "${key}"
+    fi
+  done < <(printf '%s' "${merged}" | jq -r 'to_entries[] | [.key, .value] | @tsv')
+}
+
+if [[ "${list_requested}" == true ]]; then
+  command -v yq >/dev/null 2>&1 || { echo "yq is required (brew install yq)." >&2; exit 1; }
+  command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
+  resolved_profile="${cli_profile:-$(selection_profile)}"
+  resolved_profile="${resolved_profile:-essential}"
+  echo "Selection file: ${selection_file}"
+  echo "Profile:        ${resolved_profile}"
+  echo
+  printf '%-38s %-40s %s\n' ID PATH OPTIONS
+  while IFS= read -r id; do
+    [[ -n "${id}" ]] || continue
+    path="$(master_node_path "${id}")"
+    opts="$(node_true_options "${id}" | paste -sd, - 2>/dev/null)"
+    printf '%-38s %-40s %s\n' "${id}" "${path}" "${opts:--}"
+  done < <(selection_node_ids)
+  exit 0
+fi
 
 if ! xcode-select -p >/dev/null 2>&1; then
   if [[ "${dry_run}" == true ]]; then
@@ -139,30 +206,16 @@ if ! command -v yq >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
 
-# Reads features.yaml into "id<TAB>path<TAB>default" lines, in file order.
-manifest_nodes() {
-  yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | [.id, .path, (.default // false)] | @tsv'
-}
-
-# Prints this node's option keys whose effective value is true -- either
-# set in features.yaml, or forced on for this run via a matching --<key>
-# flag (see forced_options above) -- one key per line.
-node_true_options() {
-  local id="$1" key value
-  while IFS=$'\t' read -r key value; do
-    [[ -n "${key}" ]] || continue
-    if [[ "${value}" == "true" ]]; then
-      printf '%s\n' "${key}"
-    elif [[ "${#forced_options[@]}" -gt 0 ]] && is_in "${key}" "${forced_options[@]}"; then
-      printf '%s\n' "${key}"
-    fi
-  done < <(yq -o=json ".nodes[] | select(.id == \"${id}\") | .options // {}" "${MANIFEST}" | jq -r 'to_entries[] | [.key, .value] | @tsv')
-}
+resolved_profile="${cli_profile:-$(selection_profile)}"
+resolved_profile="${resolved_profile:-essential}"
 
 run_node() {
-  local id="$1" path="$2" checkout="${ROOT_DIR}/${path}" installer
-  local -a install_args=(--"${profile}")
+  local id="$1" path installer
+  path="$(master_node_path "${id}")"
+  [[ -n "${path}" && "${path}" != "null" ]] || { echo "Unknown node id (not in features.yaml): ${id}" >&2; return 1; }
+  local checkout="${ROOT_DIR}/${path}"
   installer="${checkout}/install.sh"
+  local -a install_args=(--"${resolved_profile}")
 
   local option
   while IFS= read -r option; do
@@ -181,14 +234,10 @@ run_node() {
 }
 
 matched=false
-while IFS=$'\t' read -r id path default; do
+while IFS= read -r id; do
   [[ -n "${id}" ]] || continue
 
-  if [[ "${#only[@]}" -gt 0 ]]; then
-    is_in "${id}" "${only[@]}" || continue
-  elif [[ "${all_nodes}" == false && "${default}" != "true" ]]; then
-    continue
-  fi
+  if [[ "${#only[@]}" -gt 0 ]] && ! is_in "${id}" "${only[@]}"; then continue; fi
   matched=true
 
   if [[ "${#skipped[@]}" -gt 0 ]] && is_in "${id}" "${skipped[@]}"; then
@@ -196,16 +245,16 @@ while IFS=$'\t' read -r id path default; do
     continue
   fi
 
-  if run_node "${id}" "${path}"; then
+  if run_node "${id}"; then
     succeeded+=("${id}")
   else
     failed+=("${id}")
     [[ "${continue_on_error}" == true ]] || break
   fi
-done < <(manifest_nodes)
+done < <(selection_node_ids)
 
 if [[ "${#only[@]}" -gt 0 && "${matched}" == false ]]; then
-  echo "No node in features.yaml matched: ${only[*]}" >&2
+  echo "No node in ${selection_file} matched: ${only[*]}" >&2
   exit 2
 fi
 

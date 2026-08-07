@@ -1,12 +1,18 @@
-# Selection manifest for intelliDots. Nodes install top-to-bottom and
-# uninstall bottom-to-top. Each `path` is relative to this file's directory;
-# there is no repo URL here because everything lives in this one checkout.
+# Master node registry for intelliDots: every installable component's path,
+# default options, and (for the AI components) Neovim integration metadata.
 #
-# `options` are per-node boolean flags forwarded to that node's own
-# install.sh as `--<key>` whenever the value is `true` -- edit the values
-# here to change what a plain `./install.sh` does by default. A matching
-# root install.sh flag (--macos-defaults, --pipx, --with-turbo-fieldfare)
-# still forces that option on for one-off runs without editing this file.
+# This file is not read for selection by itself -- install.sh takes a
+# selection file via --file (features-default.yaml if omitted) that lists
+# which node ids to actually install. features-default.yaml, -essential.yaml,
+# and -all.yaml cover the common cases; write your own for anything else.
+#
+# `options` here are each node's default boolean flags, forwarded to that
+# node's own install.sh as `--<key>` whenever the effective value is `true`.
+# A selection file's own per-node `options` (if given) override these
+# key-by-key; anything it doesn't mention falls back to what's defined here.
+# A matching root install.sh flag (--macos-defaults, --pipx,
+# --with-turbo-fieldfare) still forces that option on for a single run on
+# top of both.
 #
 # `nvim_integration` is descriptive only (used by status.sh) -- the actual
 # trigger mechanism is a filesystem convention: the aiTools component stows
@@ -18,38 +24,30 @@
 nodes:
   - id: essentialDots
     path: essentialDots
-    default: true
     options:
       macos-defaults: false
       pipx: false
 
   - id: toolsDots.devTools.iTerm
     path: toolsDots/devTools/iTerm
-    default: true
 
   - id: toolsDots.devTools.nvim
     path: toolsDots/devTools/nvim
-    default: true
 
   - id: toolsDots.devTools.vsCode
     path: toolsDots/devTools/vsCode
-    default: false
 
   - id: toolsDots.devTools.tmux
     path: toolsDots/devTools/tmux
-    default: true
 
   - id: toolsDots.devTools.superfile
     path: toolsDots/devTools/superfile
-    default: true
 
   - id: toolsDots.aiTools.aiApps
     path: toolsDots/aiTools/aiApps
-    default: true
 
   - id: toolsDots.aiTools.localLLM
     path: toolsDots/aiTools/localLLM
-    default: false
     options:
       # llama.cpp-based local model runtime. On by default when this node
       # is selected at all, matching myAILab's old delegation policy.
@@ -62,6 +60,5 @@ nodes:
 
   - id: toolsDots.aiTools.opencode
     path: toolsDots/aiTools/opencode
-    default: false
     nvim_integration: opencode
     nvim_integration_path: "~/.local/share/opencode/integrations/nvim-toggleterm.lua"

@@ -1,0 +1,12 @@
+# Selection file: what a plain `./install.sh` (no --file) installs.
+# essential profile, no macOS defaults or pipx applied. Node details
+# (path, options) come from features.yaml; this file only lists which
+# ids are included and any per-node option overrides.
+profile: essential
+nodes:
+  - id: essentialDots
+  - id: toolsDots.devTools.iTerm
+  - id: toolsDots.devTools.nvim
+  - id: toolsDots.devTools.tmux
+  - id: toolsDots.devTools.superfile
+  - id: toolsDots.aiTools.aiApps
