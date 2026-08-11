@@ -10,6 +10,55 @@ if command -v pyenv >/dev/null 2>&1; then
   if pyenv commands | command grep -qx "virtualenvwrapper_lazy"; then
     pyenv virtualenvwrapper_lazy
   fi
+
+  # Route `pyenv install` at the right Homebrew Tcl/Tk so tkinter (_tkinter) gets
+  # compiled: Python 3.13+ -> tcl-tk (Tk 9.x, latest); 3.10-3.12 -> tcl-tk@8
+  # (Tk 8.6, which those versions target). Mirrors pyenv_tcltk_configure in
+  # essentialDots/install.sh so a manual `pyenv install` matches the dotfiles
+  # install flow. pyenv init (above) defines the pyenv function; we copy it to
+  # __pyenv_orig (zsh) and wrap install. The build runs in a subshell, so the
+  # Tcl/Tk build flags never linger in this interactive shell.
+  if command -v brew >/dev/null 2>&1; then
+    functions[__pyenv_orig]=${functions[pyenv]}
+    pyenv() {
+      if [[ "${1:-}" != install ]]; then
+        __pyenv_orig "$@"
+        return
+      fi
+
+      local arg version formula prefix lib suffix minor
+      for arg in "$@"; do
+        [[ "${arg}" == install || "${arg}" == -* ]] && continue
+        [[ "${arg}" == [0-9]* ]] && { version="${arg}"; break; }
+      done
+
+      minor="${version#*.}"; minor="${minor%%.*}"
+      if [[ "${minor}" =~ ^[0-9]+$ ]] && (( minor >= 13 )); then
+        formula="tcl-tk"      # Tk 9.x (latest)
+      else
+        formula="tcl-tk@8"    # Tk 8.6
+      fi
+
+      prefix="$(brew --prefix "${formula}" 2>/dev/null)"
+      lib=""
+      [[ -n "${prefix}" && -d "${prefix}" ]] && \
+        lib="$(ls "${prefix}"/lib/libtcl[0-9]*.dylib 2>/dev/null | head -1)"
+
+      if [[ -z "${lib}" ]]; then
+        printf 'pythonrc: %s not installed; building %s without tkinter (brew install %s)\n' \
+          "${formula}" "${version:-Python}" "${formula}" >&2
+        __pyenv_orig "$@"
+        return
+      fi
+
+      suffix="${lib##*/libtcl}"; suffix="${suffix%.dylib}"   # e.g. 9.0 or 8.6
+      (
+        export PKG_CONFIG_PATH="${prefix}/lib/pkgconfig"
+        export PYTHON_CONFIGURE_OPTS="--with-tcltk-includes='-I${prefix}/include' --with-tcltk-libs='-L${prefix}/lib -ltcl${suffix} -ltk${suffix}'"
+        __pyenv_orig "$@"
+      )
+    }
+  fi
 fi
 
 # pip should only run if there is a virtualenv currently activated

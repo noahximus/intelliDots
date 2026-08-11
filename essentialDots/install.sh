@@ -12,8 +12,8 @@ SCRIPTS_DIR="${DOTFILES_DIR}/scripts"
 trap 'ui_fail "Dotfiles installation stopped during stage ${UI_STEP:-0} of ${UI_TOTAL:-0}"' ERR
 BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
 DEFAULT_NODE_VERSION="${DEFAULT_NODE_VERSION:-22.7.0}"
-PYENV_PYTHON_VERSIONS="${PYENV_PYTHON_VERSIONS:-3.10.19 3.11.14 3.12.12}"
-PYENV_GLOBAL_VERSIONS="${PYENV_GLOBAL_VERSIONS:-3.12.12 3.11.14 3.10.19 system}"
+PYENV_PYTHON_VERSIONS="${PYENV_PYTHON_VERSIONS:-3.10.19 3.11.14 3.12.12 3.13.14 3.14.6}"
+PYENV_GLOBAL_VERSIONS="${PYENV_GLOBAL_VERSIONS:-3.14.6 3.13.14 3.12.12 3.11.14 3.10.19 system}"
 STOW_TARGET="${HOME}"
 STOW_PACKAGES=(zsh local git python aerospace borders btop)
 # --restow removes and relinks every managed target, so reruns self-heal any
@@ -239,6 +239,50 @@ install_default_node() {
   nvm alias default "${DEFAULT_NODE_VERSION}"
 }
 
+# Route a pyenv build at the correct Homebrew Tcl/Tk so python-build compiles the
+# _tkinter extension (tkinter). Without a Tcl/Tk library at build time python-build
+# silently omits tkinter and `import tkinter` fails. CPython 3.10-3.12 target Tk 8.6
+# (tcl-tk@8); 3.13+ support the latest Tk 9.x (tcl-tk). The two formulae coexist
+# without conflict: tcl-tk@8 is keg-only (isolated under its own opt prefix) and
+# tcl-tk 9 only collides with the unrelated `page`/`the_platinum_searcher` binaries.
+#
+# The library version suffix (e.g. 8.6 or 9.0) is read from the installed dylib so
+# it tracks Homebrew bumps. PYTHON_CONFIGURE_OPTS/PKG_CONFIG_PATH are set fresh on
+# every call so a build never inherits the previous version's Tcl/Tk. Sets
+# PYENV_TCLTK_LABEL for logging. Returns 0 when configured, 1 when the required
+# formula is missing (then builds proceed without tkinter after a warning). Keep the
+# selection rule in sync with zsh/apps/pythonrc, which does the same for manual installs.
+pyenv_tcltk_configure() {
+  local version="$1" minor formula prefix lib suffix
+  unset PYTHON_CONFIGURE_OPTS PKG_CONFIG_PATH
+  PYENV_TCLTK_LABEL=""
+
+  minor="${version#*.}"; minor="${minor%%.*}"
+  if [[ "${minor}" =~ ^[0-9]+$ ]] && (( minor >= 13 )); then
+    formula="tcl-tk"      # Tk 9.x (latest)
+  else
+    formula="tcl-tk@8"    # Tk 8.6
+  fi
+
+  prefix="$(brew --prefix "${formula}" 2>/dev/null || true)"
+  if [[ -z "${prefix}" || ! -d "${prefix}" ]]; then
+    ui_warn "${formula} not found via brew; Python ${version} will be built WITHOUT tkinter. Run: brew install ${formula}"
+    return 1
+  fi
+
+  lib="$(ls "${prefix}"/lib/libtcl[0-9]*.dylib 2>/dev/null | head -1)"
+  if [[ -z "${lib}" ]]; then
+    ui_warn "No Tcl library under ${prefix}/lib; Python ${version} will be built WITHOUT tkinter."
+    return 1
+  fi
+  suffix="${lib##*/libtcl}"; suffix="${suffix%.dylib}"   # e.g. 9.0 or 8.6
+
+  export PKG_CONFIG_PATH="${prefix}/lib/pkgconfig"
+  export PYTHON_CONFIGURE_OPTS="--with-tcltk-includes='-I${prefix}/include' --with-tcltk-libs='-L${prefix}/lib -ltcl${suffix} -ltk${suffix}'"
+  PYENV_TCLTK_LABEL="${formula} (Tk ${suffix})"
+  return 0
+}
+
 install_pyenv_pythons() {
   if ! command -v pyenv >/dev/null 2>&1; then
     echo "pyenv is not installed; skipping Python runtime install." >&2
@@ -251,11 +295,23 @@ install_pyenv_pythons() {
   local version
   for version in ${PYENV_PYTHON_VERSIONS}; do
     if [[ -d "${PYENV_ROOT}/versions/${version}" ]]; then
-      ui_skip "Python ${version} is already installed"
+      # Self-heal machines whose Python predates the tcl-tk wiring: if the
+      # interpreter exists but has no working _tkinter, rebuild it in place.
+      if pyenv_tcltk_configure "${version}" \
+        && ! "${PYENV_ROOT}/versions/${version}/bin/python" -c "import _tkinter" >/dev/null 2>&1; then
+        ui_info "Python ${version} lacks tkinter; rebuilding against ${PYENV_TCLTK_LABEL}"
+        pyenv install -f "${version}"
+      else
+        ui_skip "Python ${version} is already installed"
+      fi
     else
+      pyenv_tcltk_configure "${version}" || true
       pyenv install "${version}"
     fi
   done
+
+  # Don't leak the last version's Tcl/Tk build flags into later install stages.
+  unset PYTHON_CONFIGURE_OPTS PKG_CONFIG_PATH
 
   pyenv global ${PYENV_GLOBAL_VERSIONS}
 }

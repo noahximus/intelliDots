@@ -21,13 +21,13 @@ brew "pipx" # Installs Python CLI apps in isolated virtual environments.
 brew "pyenv" # Python version manager used to install modern Python runtimes.
 brew "pyenv-virtualenv" # Pyenv plugin for Python virtual environments.
 brew "pyenv-virtualenvwrapper" # Virtualenvwrapper integration for pyenv-based Python projects.
-brew "python-tk@3.10" # Tkinter GUI support for Python 3.10.
 brew "readline" # Command-line editing library used by pyenv-built Python.
 brew "ripgrep" # Very fast text search used by shell and repository workflows.
 brew "sqlite" # SQLite support used by pyenv-built Python.
 brew "stow" # Symlink manager used to install these dotfiles.
 brew "ta-lib" # Technical analysis library for finance/market tooling.
-brew "tcl-tk" # GUI toolkit dependency used by some Python and desktop tooling.
+brew "tcl-tk" # Tk 9.x (latest); pyenv links _tkinter against it for Python 3.13+.
+brew "tcl-tk@8" # Tk 8.6 (keg-only); pyenv links _tkinter against it for Python 3.10-3.12, which target Tk 8.6.
 brew "xz" # Compression library used when building Python versions with pyenv.
 brew "zlib" # Compression library required by many build and language tools.
 brew "zsh-autosuggestions" # Zsh plugin that suggests commands from shell history.

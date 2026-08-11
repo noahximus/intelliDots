@@ -162,3 +162,60 @@ node-here
 Choose a specific Node version with `node-here --node 22.7.0`. The helper
 creates `.nvmrc` and a managed `.envrc`, installs the version when necessary,
 and runs `direnv allow`.
+
+## Python tkinter (Tcl/Tk)
+
+pyenv builds Python from source, and `python-build` only compiles the
+`_tkinter` extension if a Tcl/Tk library is present at build time. Without it,
+`import tkinter` fails with `ModuleNotFoundError: No module named '_tkinter'` on
+an otherwise complete install.
+
+Two Tk lines are used, matched to what each CPython series targets:
+
+| Python | Tcl/Tk formula | Tk version |
+| --- | --- | --- |
+| 3.10 – 3.12 | `tcl-tk@8` (keg-only) | 8.6 |
+| 3.13+ | `tcl-tk` | 9.x (latest) |
+
+Both formulae coexist without conflict: `tcl-tk@8` is keg-only, so it lives
+entirely under its own opt prefix and links nothing into the shared Homebrew
+prefix; `tcl-tk` 9 only conflicts with the unrelated `page` and
+`the_platinum_searcher` formulae (over `page`/`pt` binary names), neither of
+which these dotfiles install. Three pieces keep tkinter working in **every**
+pyenv Python across all projects:
+
+1. **Brewfiles** install both `tcl-tk` and `tcl-tk@8`.
+2. **`install.sh`** routes each build at the correct Tk (`pyenv_tcltk_configure`)
+   by setting `PYTHON_CONFIGURE_OPTS`/`PKG_CONFIG_PATH` **fresh per version**, so a
+   build never inherits the previous version's Tcl/Tk. It also self-heals: an
+   existing Python without working `_tkinter` is rebuilt in place
+   (`pyenv install -f`).
+3. **`zsh/apps/pythonrc`** wraps `pyenv install` with the same per-version routing,
+   so a manual `pyenv install <ver>` matches the install-flow build. The build runs
+   in a subshell, so the flags never linger in the interactive shell.
+
+The Tk version suffix (`8.6`, `9.0`, …) is read from the installed library, so it
+tracks Homebrew upgrades automatically. Because the base interpreters carry
+tkinter, every virtualenv/project created from them inherits it — no per-project
+setup.
+
+**Fresh machine:** `brew bundle` (via `./install.sh`) installs both formulae, then
+`install.sh` builds each Python against the right Tk. Nothing extra to do.
+
+**Existing machine whose Pythons predate this wiring:** install the libraries and
+rebuild — `install.sh` does both automatically on its next run:
+
+```bash
+brew install tcl-tk tcl-tk@8
+./install.sh            # rebuilds any pyenv Python missing _tkinter
+```
+
+Verify (a small Tk window should appear; 3.13+ report 9.x, 3.10-3.12 report 8.6):
+
+```bash
+python -c "import tkinter; print(tkinter.TkVersion); tkinter._test()"
+```
+
+Rebuilding a version with `pyenv install -f` recompiles that interpreter and
+clears packages installed into its **global** site-packages; per-project
+virtualenvs are unaffected.
