@@ -18,6 +18,7 @@ brew "openssl@3" # TLS library used when building Python versions with pyenv.
 brew "pandoc" # Universal document converter for Markdown, HTML, PDF workflows, and more.
 brew "powerlevel10k" # Zsh prompt theme used by the shell config.
 brew "pipx" # Installs Python CLI apps in isolated virtual environments.
+brew "poppler" # PDF rendering and utilities (pdftoppm, pdftotext, etc.).
 brew "pyenv" # Python version manager used to install modern Python runtimes.
 brew "pyenv-virtualenv" # Pyenv plugin for Python virtual environments.
 brew "pyenv-virtualenvwrapper" # Virtualenvwrapper integration for pyenv-based Python projects.

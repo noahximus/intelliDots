@@ -14,6 +14,7 @@ brew "nvm" # Node.js version manager loaded by the zsh config.
 brew "openssl@3" # TLS library used when building Python versions with pyenv.
 brew "powerlevel10k" # Zsh prompt theme used by the shell config.
 brew "pipx" # Installs Python CLI apps in isolated virtual environments.
+brew "poppler" # PDF rendering and utilities (pdftoppm, pdftotext, etc.).
 brew "pyenv" # Python version manager used to install modern Python runtimes.
 brew "readline" # Command-line editing library used by pyenv-built Python.
 brew "ripgrep" # Very fast text search used by shell and repository workflows.
