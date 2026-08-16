@@ -2,6 +2,7 @@ tap "felixkratz/formulae" # Extra formulae used by macOS UI tools like borders.
 tap "nikitabobko/tap" # Official tap for the AeroSpace window manager cask.
 
 brew "borders" # Draws window borders that pair well with AeroSpace.
+brew "chromaprint" # Audio fingerprinting library (fpcalc) used by AcoustID and music taggers.
 brew "cmake" # Build system generator needed by some developer tools and native packages.
 brew "direnv" # Automatically loads per-project environment variables.
 brew "eza" # Modern replacement for ls with icons, colors, and Git status.
