@@ -335,6 +335,17 @@ run_node() {
   # whether it runs, and nodes have nothing left to vary by profile.
   local -a install_args=(--no-brew)
 
+  # essentialDots is the one node whose config spans tiers -- shell and Git
+  # for every machine, AeroSpace/borders for the desktop, Python only for a
+  # development machine -- so it needs the tier list to know what to stow.
+  # Every other node owns a single tier's worth of config by construction.
+  if [[ "${id}" == "essentialDots" ]]; then
+    local tier
+    for tier in "${selected_tiers[@]}"; do
+      install_args+=(--tier "${tier}")
+    done
+  fi
+
   local option
   while IFS= read -r option; do
     [[ -n "${option}" ]] || continue

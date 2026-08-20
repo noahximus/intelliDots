@@ -14,7 +14,23 @@ DEFAULT_NODE_VERSION="${DEFAULT_NODE_VERSION:-22.7.0}"
 PYENV_PYTHON_VERSIONS="${PYENV_PYTHON_VERSIONS:-3.10.19 3.11.14 3.12.12 3.13.14 3.14.6}"
 PYENV_GLOBAL_VERSIONS="${PYENV_GLOBAL_VERSIONS:-3.14.6 3.13.14 3.12.12 3.11.14 3.10.19 system}"
 STOW_TARGET="${HOME}"
-STOW_PACKAGES=(zsh local git python aerospace borders btop)
+# This component's config spans tiers: the shell and Git belong on every
+# machine, the window-manager config only where the macOS desktop tier is
+# installed, and the Python config only on a development machine. Grouping
+# the stow packages by owning tier is what stops an `air` machine from
+# linking python/ and btop/ config for tools it never installed.
+ALL_STOW_PACKAGES=(zsh local git python aerospace borders btop)
+stow_packages_for_tier() {
+  case "$1" in
+    core)           printf '%s\n' zsh local git ;;
+    mac-essentials) printf '%s\n' aerospace borders ;;
+    mac-extras)     printf '%s\n' btop ;;
+    dev-essentials) printf '%s\n' python ;;
+    *) ;;
+  esac
+}
+declare -a cli_tiers=()
+declare -a STOW_PACKAGES=()
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -313,6 +329,14 @@ while [[ $# -gt 0 ]]; do
     --stow-only)
       stow_only=true
       ;;
+    --tier)
+      shift
+      [[ $# -gt 0 ]] || { echo "--tier requires a name" >&2; exit 1; }
+      cli_tiers+=("$1")
+      ;;
+    --tier=*)
+      cli_tiers+=("${1#*=}")
+      ;;
     --no-brew)
       run_brew=false
       ;;
@@ -363,6 +387,25 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# No --tier means a standalone run of this component, which keeps the old
+# behavior of stowing everything. The root install.sh always passes the
+# profile's tiers, so a profile-driven install links only what it selected.
+if [[ "${#cli_tiers[@]}" -eq 0 ]]; then
+  STOW_PACKAGES=("${ALL_STOW_PACKAGES[@]}")
+else
+  for tier in "${cli_tiers[@]}"; do
+    while IFS= read -r stow_package; do
+      [[ -n "${stow_package}" ]] || continue
+      STOW_PACKAGES+=("${stow_package}")
+    done < <(stow_packages_for_tier "${tier}")
+  done
+fi
+
+if [[ "${#STOW_PACKAGES[@]}" -eq 0 ]]; then
+  echo "No stow packages for tiers: ${cli_tiers[*]}" >&2
+  exit 1
+fi
 
 if [[ "${dry_run}" == true ]]; then
   ui_init 1 "Dotfiles installation dry run"
