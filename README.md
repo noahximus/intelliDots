@@ -51,11 +51,15 @@ of machine:
 | Profile | Tiers | Nodes | Packages |
 | --- | --- | --- | --- |
 | `air` | core, mac-essentials, ai-essentials | 3 | 33 |
+| `air-plus` | air, plus iTerm2 on its own | 4 | 34 |
 | `daily` (default) | adds dev-essentials | 7 | 55 |
 | `everything` | every tier but optional | 9 | 85 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.
+`air-plus` is the same machine with iTerm2 borrowed out of dev-essentials,
+since a terminal emulator is not really a development tool and Terminal.app
+means setting the MesloLGS NF font by hand.
 
 ### One-file fresh-Mac bootstrap
 
@@ -122,6 +126,28 @@ a one-off combination:
 ./install.sh --tier core --tier mac-essentials
 ```
 
+### Borrowing from a tier you do not install
+
+A profile may also name individual packages and nodes to add on top of its
+tiers. `profiles/air-plus.yaml` uses both to take iTerm2 out of
+`dev-essentials` without the toolchain that tier otherwise brings:
+
+```yaml
+tiers:
+  - core
+  - mac-essentials
+  - ai-essentials
+
+picks:                            # packages, by name, from any tier
+  - iterm2
+nodes:                            # node ids, added to the tier selection
+  - toolsDots.devTools.iTerm
+```
+
+These are the deliberate escape hatch from the one-list rule above, and they
+are the only way to break the node/package coupling -- so keep them short. A
+profile that needs many of them is really asking for a new tier.
+
 ### features.yaml
 
 `features.yaml` is the node registry: each node's `tier`, `path`, default
@@ -183,9 +209,16 @@ Install one by name:
 ./install.sh --pick raycast --pick uv
 ```
 
-`--pick` uncomments just that line into the merged Brewfile for one run and
-leaves the file untouched. Because the file stays commented, an uninstall
-never sweeps up something you picked deliberately.
+`--pick` copies just that line into the merged Brewfile for one run and
+leaves the file untouched. Because `optional.Brewfile` stays commented, an
+uninstall never sweeps up something you picked deliberately.
+
+`--pick` searches every tier, not only `optional`, so it can also borrow a
+single package from a tier this profile does not install:
+
+```bash
+./install.sh --profile air --pick iterm2
+```
 
 ## TG Pro is chosen by hardware, not by tier
 

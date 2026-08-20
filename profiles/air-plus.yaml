@@ -1,0 +1,32 @@
+# air-plus: air, plus a real terminal.
+#
+# The Air is not a development machine, so dev-essentials stays out -- no
+# pyenv, no Node, no build tooling. But a terminal emulator is not really a
+# development tool, and Terminal.app means configuring the MesloLGS NF font
+# by hand every time. iTerm2 and its tracked profile are borrowed out of
+# dev-essentials on their own.
+#
+#   ./install.sh --profile air-plus
+#
+# `picks` and `nodes` are additive escape hatches: normally a tier selects a
+# node and its packages together, and these two step around that for exactly
+# this case. If this list grows, the honest fix is a new tier rather than a
+# longer profile.
+
+tiers:
+  - core
+  - mac-essentials
+  - ai-essentials
+
+picks:
+  - iterm2
+
+nodes:
+  - toolsDots.devTools.iTerm
+
+options:
+  essentialDots:
+    macos-defaults: true
+    # As in air: the pipx formula is in dev-essentials, which this profile
+    # does not install, so there would be no pipx for install-pipx.sh to call.
+    pipx: false

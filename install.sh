@@ -21,6 +21,7 @@ continue_on_error=true
 declare -a only=() skipped=() forced_options=() disabled_options=()
 declare -a succeeded=() failed=()
 declare -a cli_tiers=() picks=()
+declare -a extra_nodes=()
 declare -a selected_tiers=()
 TIERS_DIR="${ROOT_DIR}/tiers"
 
@@ -152,8 +153,26 @@ selected_node_ids() {
   local id tier
   while IFS=$'\t' read -r id tier; do
     [[ -n "${id}" ]] || continue
-    is_in "${tier}" "${selected_tiers[@]}" && printf '%s\n' "${id}"
+    if is_in "${tier}" "${selected_tiers[@]}"; then
+      printf '%s\n' "${id}"
+    elif [[ "${#extra_nodes[@]}" -gt 0 ]] && is_in "${id}" "${extra_nodes[@]}"; then
+      printf '%s\n' "${id}"
+    fi
   done < <(yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | [.id, (.tier // "")] | @tsv')
+}
+
+# A profile's `picks` (extra packages by name) and `nodes` (extra node ids),
+# both added on top of whatever its tiers select. These are the escape hatch
+# from the one-list rule: normally a tier decides a node and its packages
+# together, and these two keys deliberately step around that for the cases
+# where a machine wants one thing out of a tier it otherwise has no use for.
+# Keep them short -- a profile that needs many is asking for another tier.
+profile_picks() {
+  yq -o=json '.picks // []' "${profile_file}" | jq -r '.[]'
+}
+
+profile_extra_nodes() {
+  yq -o=json '.nodes // []' "${profile_file}" | jq -r '.[]'
 }
 
 # Reads a node's options override from the profile, as compact JSON.
@@ -208,6 +227,18 @@ resolve_tiers() {
     echo "Profile names no tiers: ${profile_file}" >&2
     return 1
   }
+
+  # A profile's own picks come before any from the command line, so both apply.
+  local item
+  while IFS= read -r item; do
+    [[ -n "${item}" ]] || continue
+    picks+=("${item}")
+  done < <(profile_picks)
+
+  while IFS= read -r item; do
+    [[ -n "${item}" ]] || continue
+    extra_nodes+=("${item}")
+  done < <(profile_extra_nodes)
 }
 
 # machine_has_fans() lives in the shared lib so this and macos-defaults.sh
@@ -219,13 +250,18 @@ resolve_tiers() {
 # for this run only. optional/ is never pulled by a profile, so this is the
 # sole path by which docker-desktop, orbstack, raycast, uv, and the work-comms
 # casks get installed.
+# Adds one named package to this run's merged Brewfile. Searches every tier,
+# not just optional: optional's lines are commented out and the rest are not,
+# so both forms are matched. That is what lets a profile borrow a single
+# package from a tier it does not otherwise install -- iterm2 out of
+# dev-essentials, say -- without dragging the whole toolchain along.
 append_picks() {
   local merged="$1" pick line
   for pick in "${picks[@]}"; do
-    line="$(sed -nE "s/^[[:space:]]*#[[:space:]]*((brew|cask) \"${pick}\".*)$/\1/p" \
-      "${TIERS_DIR}/optional.Brewfile" | head -1)"
+    line="$(sed -nE "s/^[[:space:]]*#?[[:space:]]*((brew|cask) \"${pick}\".*)$/\1/p" \
+      "${TIERS_DIR}"/*.Brewfile | head -1)"
     if [[ -z "${line}" ]]; then
-      echo "No entry named '${pick}' in ${TIERS_DIR}/optional.Brewfile" >&2
+      echo "No package named '${pick}' in any file under ${TIERS_DIR}" >&2
       return 1
     fi
     printf '%s\n' "${line}" >>"${merged}"
@@ -262,6 +298,7 @@ if [[ "${list_requested}" == true ]]; then
   echo "Profile:        ${profile_file}"
   echo "Tiers:          ${selected_tiers[*]}"
   [[ "${#picks[@]}" -eq 0 ]] || echo "Picks:          ${picks[*]}"
+  [[ "${#extra_nodes[@]}" -eq 0 ]] || echo "Extra nodes:    ${extra_nodes[*]}"
   if machine_has_fans; then
     echo "Fans:           yes (tg-pro will be included with mac-essentials)"
   else
