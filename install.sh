@@ -196,21 +196,10 @@ resolve_tiers() {
   }
 }
 
-# Fanless Macs -- every Apple Silicon MacBook Air, and the 12-inch MacBook --
-# have nothing for TG Pro to report on or control, so it is skipped there.
-# Model Name is used rather than the model identifier because Apple's
-# identifiers stopped encoding the family ("Mac14,2" is an M2 Air) while the
-# marketing name did not. ioreg is not an option: fan data moved behind
-# IOHIDEventSystemClient on Apple Silicon and is invisible to `ioreg -c AppleSMC`.
-machine_has_fans() {
-  local model
-  model="$(system_profiler SPHardwareDataType 2>/dev/null |
-    awk -F': ' '/Model Name/ { print $2; exit }')"
-  case "${model}" in
-    "MacBook Air" | "MacBook") return 1 ;;
-    *) return 0 ;;
-  esac
-}
+# machine_has_fans() lives in the shared lib so this and macos-defaults.sh
+# cannot disagree about whether TG Pro belongs on this machine.
+# shellcheck source=essentialDots/scripts/lib/hardware.sh
+. "${ROOT_DIR}/essentialDots/scripts/lib/hardware.sh"
 
 # Uncomments one named entry from tiers/optional.Brewfile into the merged file
 # for this run only. optional/ is never pulled by a profile, so this is the

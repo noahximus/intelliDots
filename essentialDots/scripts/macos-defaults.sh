@@ -2,6 +2,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/hardware.sh
+. "${SCRIPT_DIR}/lib/hardware.sh"
+
 assume_yes=false
 dry_run=false
 restart_apps=true
@@ -70,7 +74,7 @@ This will apply your personal macOS UI preferences:
   - Trackpad tap-to-click and gesture preferences.
   - Screenshot save location.
   - Menu bar / Control Center visibility preferences.
-  - TG Pro monitoring with macOS retaining fan control.
+  - TG Pro monitoring, on a Mac with fans that has TG Pro installed.
 
 EOF
 
@@ -179,18 +183,30 @@ run defaults write com.apple.controlcenter "NSStatusItem Visible KeyboardBrightn
 
 # TG Pro: monitor the highest CPU temperature while macOS controls the fans.
 # These are documented deployment keys; no license or machine-specific data is stored.
-tg_pro_domain="com.tunabellysoftware.tgpro"
-run defaults write "${tg_pro_domain}" launchOnLogin -bool true
-run defaults write "${tg_pro_domain}" automaticallyCheckForUpdates -bool true
-run defaults write "${tg_pro_domain}" fanControlType -int 0
-run defaults write "${tg_pro_domain}" useManualInsteadOfMax -bool false
-run defaults write "${tg_pro_domain}" useAutoBoostInsteadOfAutoMax -bool false
-run defaults write "${tg_pro_domain}" enableSystemOverrides -array -bool false
-run defaults write "${tg_pro_domain}" showTempInMenuBar -bool true
-run defaults write "${tg_pro_domain}" menuBarTempSensorIndex -int 4
-run defaults write "${tg_pro_domain}" showTemp2InMenuBar -bool false
-run defaults write "${tg_pro_domain}" tempUnit -int 0
-run defaults write "${tg_pro_domain}" logToFile -bool false
+# Only on a Mac that has fans for TG Pro to report on, and only if TG Pro is
+# actually installed -- these keys would otherwise configure an absent app on
+# a fanless Air. install.sh applies the same machine_has_fans() check when
+# deciding whether to add the cask, so the two stay in step.
+if machine_has_fans && [[ -d "/Applications/TG Pro.app" ]]; then
+  tg_pro_domain="com.tunabellysoftware.tgpro"
+  run defaults write "${tg_pro_domain}" launchOnLogin -bool true
+  run defaults write "${tg_pro_domain}" automaticallyCheckForUpdates -bool true
+  run defaults write "${tg_pro_domain}" fanControlType -int 0
+  run defaults write "${tg_pro_domain}" useManualInsteadOfMax -bool false
+  run defaults write "${tg_pro_domain}" useAutoBoostInsteadOfAutoMax -bool false
+  run defaults write "${tg_pro_domain}" enableSystemOverrides -array -bool false
+  # Stats owns the menu-bar temperature readout; TG Pro is the on-demand
+  # deep dive, so it does not duplicate the reading in the bar.
+  run defaults write "${tg_pro_domain}" showTempInMenuBar -bool false
+  run defaults write "${tg_pro_domain}" menuBarTempSensorIndex -int 4
+  run defaults write "${tg_pro_domain}" showTemp2InMenuBar -bool false
+  run defaults write "${tg_pro_domain}" tempUnit -int 0
+  run defaults write "${tg_pro_domain}" logToFile -bool false
+elif machine_has_fans; then
+  echo "Skipping TG Pro settings: TG Pro is not installed."
+else
+  echo "Skipping TG Pro settings: this Mac has no fans."
+fi
 
 restart_changed_apps
 
