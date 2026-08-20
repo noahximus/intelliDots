@@ -2,7 +2,6 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -23,10 +22,10 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    # No distinct full Brewfile yet; both branches point at the same file so
-    # the root installer can pass --full uniformly across every component.
-    --essential) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
-    --full) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
+    # Profile flags are accepted so the root installer can pass them uniformly,
+    # but they no longer select a Brewfile: packages come from tiers/.
+    --essential) ;;
+    --full) ;;
     --no-brew) run_brew=false ;;
     --adopt) STOW_FLAGS+=(--adopt) ;;
     --dry-run) dry_run=true ;;
@@ -42,8 +41,8 @@ if [[ "${dry_run}" == true ]]; then
 fi
 
 if [[ "${run_brew}" == true ]]; then
-  command -v brew >/dev/null 2>&1 || { echo "Homebrew is required." >&2; exit 1; }
-  brew bundle --file="${BREWFILE}" --no-upgrade
+  echo "Note: this component no longer installs its own packages." >&2
+  echo "      Run the repository's root install.sh to install from tiers/." >&2
 fi
 
 command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }

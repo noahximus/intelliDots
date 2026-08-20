@@ -1,4 +1,0 @@
-brew "jq"
-brew "llama.cpp"
-brew "pipx"
-brew "stow"

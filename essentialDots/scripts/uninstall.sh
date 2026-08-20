@@ -4,7 +4,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOTFILES_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
+TIERS_DIR="$(cd "${DOTFILES_DIR}/.." && pwd)/tiers"
+# Packages moved out of this component into the repository's tier Brewfiles,
+# so uninstall reads all of them. optional.Brewfile is entirely commented out
+# and therefore contributes nothing, which is what keeps --pick installs
+# (docker-desktop, orbstack, raycast, ...) from being swept up here.
+declare -a BREWFILES=()
 PIPXFILE="${DOTFILES_DIR}/Pipxfile"
 STOW_TARGET="${HOME}"
 STOW_PACKAGES=(zsh local git python aerospace borders btop)
@@ -91,10 +96,8 @@ while [[ $# -gt 0 ]]; do
       remove_homebrew=true
       ;;
     --essential)
-      BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
       ;;
     --full)
-      BREWFILE="${DOTFILES_DIR}/Brewfile"
       ;;
     --brewfile)
       shift
@@ -103,9 +106,11 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       resolve_brewfile "$1"
+      BREWFILES=("${BREWFILE}")
       ;;
     --brewfile=*)
       resolve_brewfile "${1#*=}"
+      BREWFILES=("${BREWFILE}")
       ;;
     --pipxfile)
       shift
@@ -224,14 +229,17 @@ remove_generated_data() {
 
 read_brewfile_items() {
   local kind="$1"
-  sed -nE "s/^[[:space:]]*${kind} \"([^\"]+)\".*/\1/p" "${BREWFILE}"
+  sed -nE "s/^[[:space:]]*${kind} \"([^\"]+)\".*/\1/p" "${BREWFILES[@]}" | sort -u
 }
 
 uninstall_brew_items() {
   [[ "${remove_brew}" == true ]] || return 0
 
-  if [[ ! -f "${BREWFILE}" ]]; then
-    echo "Brewfile not found: ${BREWFILE}" >&2
+  if [[ "${#BREWFILES[@]}" -eq 0 ]]; then
+    BREWFILES=("${TIERS_DIR}"/*.Brewfile)
+  fi
+  if [[ ! -f "${BREWFILES[0]}" ]]; then
+    echo "No tier Brewfiles found under ${TIERS_DIR}" >&2
     exit 1
   fi
 

@@ -1,18 +1,19 @@
 # Master node registry for intelliDots: every installable component's path,
 # default options, and (for the AI components) Neovim integration metadata.
 #
-# This file is not read for selection by itself -- install.sh takes a
-# selection file via --file (features-default.yaml if omitted) that lists
-# which node ids to actually install. features-default.yaml, -essential.yaml,
-# and -all.yaml cover the common cases; write your own for anything else.
+# `tier` is what decides whether a node installs. install.sh reads a profile
+# from profiles/ (daily if none is named), takes that profile's `tiers` list,
+# and installs every node here whose `tier` is in it. Nodes install in the
+# order they appear below. The same tier names are the Brewfiles under
+# tiers/, so a node and its packages are selected by one decision rather
+# than two -- which is why there is no longer a separate selection file.
 #
 # `options` here are each node's default boolean flags, forwarded to that
 # node's own install.sh as `--<key>` whenever the effective value is `true`.
-# A selection file's own per-node `options` (if given) override these
-# key-by-key; anything it doesn't mention falls back to what's defined here.
-# A matching root install.sh flag (--macos-defaults, --pipx,
-# --with-turbo-fieldfare) still forces that option on for a single run on
-# top of both.
+# A profile's own per-node `options` (if given) override these key-by-key;
+# anything it doesn't mention falls back to what's defined here. A matching
+# root install.sh flag (--macos-defaults, --pipx, --with-turbo-fieldfare)
+# still forces that option on for a single run on top of both.
 #
 # `nvim_integration` is descriptive only (used by status.sh) -- the actual
 # trigger mechanism is a filesystem convention: the aiTools component stows
@@ -27,15 +28,18 @@
 # installing that one item; nothing else to edit.
 nodes:
   - id: essentialDots
+    tier: core
     path: essentialDots
     options:
       macos-defaults: true
       pipx: true
 
   - id: toolsDots.devTools.iTerm
+    tier: dev-essentials
     path: toolsDots/devTools/iTerm
 
   - id: toolsDots.devTools.nvim
+    tier: dev-essentials
     path: toolsDots/devTools/nvim
     extras:
       # @agentclientprotocol/codex-acp via npm; lets CodeCompanion use
@@ -43,6 +47,7 @@ nodes:
       - codex-acp
 
   - id: toolsDots.devTools.vsCode
+    tier: dev-essentials
     path: toolsDots/devTools/vsCode
     extensions:
       - ms-python.python # Python language support, debugging, and environment management.
@@ -56,27 +61,33 @@ nodes:
       - Continue.continue # Open-source AI code agent; connects to local LLM backends (llama.cpp/Ollama-compatible) from localLLM.
 
   - id: toolsDots.devTools.tmux
+    tier: dev-essentials
     path: toolsDots/devTools/tmux
 
   - id: toolsDots.devTools.superfile
+    tier: dev-extras
     path: toolsDots/devTools/superfile
 
   - id: toolsDots.aiTools.aiApps
+    tier: ai-essentials
     path: toolsDots/aiTools/aiApps
 
   - id: toolsDots.aiTools.localLLM
+    tier: ai-extras
     path: toolsDots/aiTools/localLLM
     options:
       # llama.cpp-based local model runtime. On by default when this node
       # is selected at all, matching myAILab's old delegation policy.
       with-local-llm: true
       # Swift/Metal Gemma runtime. Opt-in: large (~14GB model) and needs
-      # macOS 26 + Xcode 26 + Apple Silicon.
-      with-turbo-fieldfare: true
+      # macOS 26 + Xcode 26 + Apple Silicon. Force on for one run with
+      # the root install.sh's --with-turbo-fieldfare.
+      with-turbo-fieldfare: false
     nvim_integration: codecompanion
     nvim_integration_path: "~/.local/share/local-llm/integrations/codecompanion.lua"
 
   - id: toolsDots.aiTools.opencode
+    tier: ai-essentials
     path: toolsDots/aiTools/opencode
     nvim_integration: opencode
     nvim_integration_path: "~/.local/share/opencode/integrations/nvim-toggleterm.lua"

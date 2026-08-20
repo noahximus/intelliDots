@@ -2,7 +2,6 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -31,8 +30,8 @@ be combined in the same invocation:
                            afterward for that.
 
 Other options:
-  --essential          Use local-llm's essential Brewfile (default).
-  --full               Use local-llm's full Brewfile (adds the Ollama app).
+  --essential          Accepted for compatibility; packages come from tiers/.
+  --full               Accepted for compatibility; packages come from tiers/.
   --no-brew            Skip Homebrew bundle installation.
   --no-pipx            Skip installing huggingface-hub via pipx.
   --adopt              Pass --adopt to GNU Stow.
@@ -45,8 +44,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --with-local-llm) with_local_llm=true ;;
     --with-turbo-fieldfare) with_turbo_fieldfare=true ;;
-    --essential) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
-    --full) BREWFILE="${PROJECT_DIR}/Brewfile-full" ;;
+    --essential) ;;
+    --full) ;;
     --no-brew) run_brew=false ;;
     --no-pipx) run_pipx=false ;;
     --adopt) STOW_FLAGS+=(--adopt) ;;
@@ -90,13 +89,13 @@ EOF
 install_local_llm() {
   if [[ "${dry_run}" == true ]]; then
     stow "${STOW_FLAGS[@]}" --simulate local-llm || true
-    echo "Would install ${BREWFILE}, initialize runtime directories, and write two LaunchAgents"
+    echo "Would initialize runtime directories and write two LaunchAgents"
     return 0
   fi
 
   if [[ "${run_brew}" == true ]]; then
-    command -v brew >/dev/null 2>&1 || { echo "Homebrew is required." >&2; exit 1; }
-    brew bundle --file="${BREWFILE}" --no-upgrade
+    echo "Note: this component no longer installs its own packages." >&2
+    echo "      Run the repository's root install.sh to install from tiers/." >&2
   fi
 
   command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }

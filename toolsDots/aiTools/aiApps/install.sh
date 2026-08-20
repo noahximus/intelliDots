@@ -2,7 +2,6 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 run_brew=true
 dry_run=false
 
@@ -12,14 +11,14 @@ Usage: ./install.sh [--essential] [--full] [--no-brew] [--dry-run]
 
 Installs the tracked AI desktop/CLI apps (ChatGPT, Claude, Claude Code, and
 on --full, Gemini CLI and Antigravity) via Homebrew. No dotfile payload --
-this component only manages the Brewfile.
+this component manages no packages of its own; they live in tiers/.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --essential) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
-    --full) BREWFILE="${PROJECT_DIR}/Brewfile" ;;
+    --essential) ;;
+    --full) ;;
     --no-brew) run_brew=false ;;
     --dry-run) dry_run=true ;;
     -h|--help) usage; exit 0 ;;
@@ -29,13 +28,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "${dry_run}" == true ]]; then
-  [[ "${run_brew}" == true ]] && echo "Would install ${BREWFILE}"
   exit 0
 fi
 
 if [[ "${run_brew}" == true ]]; then
-  command -v brew >/dev/null 2>&1 || { echo "Homebrew is required." >&2; exit 1; }
-  brew bundle --file="${BREWFILE}" --no-upgrade
+  echo "Note: this component no longer installs its own packages." >&2
+  echo "      Run the repository's root install.sh to install from tiers/." >&2
 fi
 
 echo "aiApps installed."

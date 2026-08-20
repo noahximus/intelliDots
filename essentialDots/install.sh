@@ -10,12 +10,27 @@ SCRIPTS_DIR="${DOTFILES_DIR}/scripts"
 # since this installer runs many stages and the stage number alone
 # localizes the failure without needing -x tracing.
 trap 'ui_fail "Dotfiles installation stopped during stage ${UI_STEP:-0} of ${UI_TOTAL:-0}"' ERR
-BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
 DEFAULT_NODE_VERSION="${DEFAULT_NODE_VERSION:-22.7.0}"
 PYENV_PYTHON_VERSIONS="${PYENV_PYTHON_VERSIONS:-3.10.19 3.11.14 3.12.12 3.13.14 3.14.6}"
 PYENV_GLOBAL_VERSIONS="${PYENV_GLOBAL_VERSIONS:-3.14.6 3.13.14 3.12.12 3.11.14 3.10.19 system}"
 STOW_TARGET="${HOME}"
-STOW_PACKAGES=(zsh local git python aerospace borders btop)
+# This component's config spans tiers: the shell and Git belong on every
+# machine, the window-manager config only where the macOS desktop tier is
+# installed, and the Python config only on a development machine. Grouping
+# the stow packages by owning tier is what stops an `air` machine from
+# linking python/ and btop/ config for tools it never installed.
+ALL_STOW_PACKAGES=(zsh local git python aerospace borders btop)
+stow_packages_for_tier() {
+  case "$1" in
+    core)           printf '%s\n' zsh local git ;;
+    mac-essentials) printf '%s\n' aerospace borders ;;
+    mac-extras)     printf '%s\n' btop ;;
+    dev-essentials) printf '%s\n' python ;;
+    *) ;;
+  esac
+}
+declare -a cli_tiers=()
+declare -a STOW_PACKAGES=()
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -29,7 +44,11 @@ STOW_ROOT_FILE="${STOW_STATE_DIR}/stow-root"
 
 usage() {
   cat <<'EOF'
-Usage: ./install.sh [--adopt] [--dry-run] [--stow-only] [--no-brew] [--essential] [--full] [--brewfile FILE|NAME] [--pipx] [--pipxfile FILE|NAME] [--macos-defaults]
+Usage: ./install.sh [--adopt] [--dry-run] [--stow-only] [--pipx] [--pipxfile FILE|NAME] [--macos-defaults]
+
+Installs this component's configuration. Packages are NOT installed here --
+they are declared in the repository's tier Brewfiles under tiers/ and
+installed once by the root install.sh.
 
 Options:
   --adopt              Let stow adopt existing files into this repo before linking.
@@ -37,11 +56,10 @@ Options:
   --dry-run            Show stale symlinks that would be migrated and simulate Stow.
                        No packages, runtimes, or configuration are changed.
   --stow-only          Migrate and restow dotfile links without installing anything else.
-  --no-brew            Skip brew bundle.
-  --essential          Install Brewfile-essential (the default).
-  --full               Install the expanded Brewfile instead of the essential set.
-  --brewfile FILE|NAME Install a specific Brewfile. Relative names are resolved
-                       from this dotfiles directory.
+  --no-brew            Accepted for compatibility; this component installs no packages.
+  --essential          Accepted for compatibility; no longer selects a Brewfile.
+  --full               Accepted for compatibility; no longer selects a Brewfile.
+  --brewfile FILE|NAME Accepted and ignored; use the root install.sh's --tier/--pick.
   --pipx               Install Python CLI apps listed in Pipxfile with pipx.
   --pipxfile FILE|NAME Install Python CLI apps from a specific Pipxfile.
                        Relative names are resolved from this dotfiles directory.
@@ -57,16 +75,6 @@ apply_macos_defaults=false
 dry_run=false
 migration_needed=false
 stow_only=false
-
-resolve_brewfile() {
-  local requested="$1"
-
-  if [[ "${requested}" = /* ]]; then
-    BREWFILE="${requested}"
-  else
-    BREWFILE="${DOTFILES_DIR}/${requested}"
-  fi
-}
 
 clone_or_update() {
   local repo_url="$1"
@@ -189,12 +197,6 @@ migrate_stale_symlinks() {
       fi
     done < <(find "${DOTFILES_DIR}/${package}" -mindepth 1 -print0)
   done
-}
-
-trust_required_homebrew_taps() {
-  mkdir -p "${XDG_CONFIG_HOME}/homebrew"
-  brew trust --tap felixkratz/formulae
-  brew trust --tap nikitabobko/tap
 }
 
 # Stow refuses to link over a real file, so an untracked ~/.gitconfig (e.g.
@@ -327,25 +329,32 @@ while [[ $# -gt 0 ]]; do
     --stow-only)
       stow_only=true
       ;;
+    --tier)
+      shift
+      [[ $# -gt 0 ]] || { echo "--tier requires a name" >&2; exit 1; }
+      cli_tiers+=("$1")
+      ;;
+    --tier=*)
+      cli_tiers+=("${1#*=}")
+      ;;
     --no-brew)
       run_brew=false
       ;;
+    # Profile flags are accepted so the root installer can pass them uniformly,
+    # but they no longer select a Brewfile: packages come from tiers/.
     --essential)
-      BREWFILE="${DOTFILES_DIR}/Brewfile-essential"
       ;;
     --full)
-      BREWFILE="${DOTFILES_DIR}/Brewfile"
       ;;
+    # Accepted and ignored: package selection moved to the repository's tier
+    # Brewfiles. Use the root install.sh's --tier / --pick instead.
     --brewfile)
       shift
-      if [[ $# -eq 0 ]]; then
-        echo "--brewfile requires a file path or Brewfile name." >&2
-        exit 1
-      fi
-      resolve_brewfile "$1"
+      [[ $# -gt 0 ]] || { echo "--brewfile requires a file path or Brewfile name." >&2; exit 1; }
+      echo "Note: --brewfile is ignored; packages come from tiers/." >&2
       ;;
     --brewfile=*)
-      resolve_brewfile "${1#*=}"
+      echo "Note: --brewfile is ignored; packages come from tiers/." >&2
       ;;
     --pipx)
       run_pipx=true
@@ -378,6 +387,25 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# No --tier means a standalone run of this component, which keeps the old
+# behavior of stowing everything. The root install.sh always passes the
+# profile's tiers, so a profile-driven install links only what it selected.
+if [[ "${#cli_tiers[@]}" -eq 0 ]]; then
+  STOW_PACKAGES=("${ALL_STOW_PACKAGES[@]}")
+else
+  for tier in "${cli_tiers[@]}"; do
+    while IFS= read -r stow_package; do
+      [[ -n "${stow_package}" ]] || continue
+      STOW_PACKAGES+=("${stow_package}")
+    done < <(stow_packages_for_tier "${tier}")
+  done
+fi
+
+if [[ "${#STOW_PACKAGES[@]}" -eq 0 ]]; then
+  echo "No stow packages for tiers: ${cli_tiers[*]}" >&2
+  exit 1
+fi
 
 if [[ "${dry_run}" == true ]]; then
   ui_init 1 "Dotfiles installation dry run"
@@ -413,7 +441,6 @@ fi
 # be computed from the same conditions used below to decide which stages
 # actually run.
 install_stage_total=5
-[[ "${run_brew}" == true ]] && install_stage_total=$((install_stage_total + 1))
 [[ "${run_pipx}" == true ]] && install_stage_total=$((install_stage_total + 1))
 [[ "${apply_macos_defaults}" == true ]] && install_stage_total=$((install_stage_total + 1))
 ui_init "${install_stage_total}" "Dotfiles installation"
@@ -441,22 +468,8 @@ elif [[ -x /usr/local/bin/brew ]]; then
 fi
 
 if [[ "${run_brew}" == true ]]; then
-  ui_stage "Installing missing Homebrew dependencies"
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "Homebrew is not installed. Install Homebrew first, then rerun ./install.sh." >&2
-    exit 1
-  fi
-
-  if [[ ! -f "${BREWFILE}" ]]; then
-    echo "Brewfile not found: ${BREWFILE}" >&2
-    exit 1
-  fi
-
-  trust_required_homebrew_taps
-
-  ui_info "Using ${BREWFILE}"
-  "${SCRIPTS_DIR}/install-brew-bundle.sh" "${BREWFILE}"
-  ui_done "Homebrew dependencies are satisfied"
+  ui_info "This component no longer installs its own packages."
+  ui_info "Run the repository's root install.sh to install from tiers/."
 fi
 
 ui_stage "Ensuring the default Node runtime"

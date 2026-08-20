@@ -34,12 +34,11 @@ done
 
 if [[ "${dry_run}" == true ]]; then
   stow "${STOW_FLAGS[@]}" --simulate opencode || true
-  echo "Would install packages from ${PROJECT_DIR}/Brewfile-essential"
   exit 0
 fi
 if [[ "${run_brew}" == true ]]; then
-  command -v brew >/dev/null 2>&1 || { echo "Homebrew is required." >&2; exit 1; }
-  brew bundle --file="${PROJECT_DIR}/Brewfile-essential" --no-upgrade
+  echo "Note: this component no longer installs its own packages." >&2
+  echo "      Run the repository's root install.sh to install from tiers/." >&2
 fi
 command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }
 stow "${STOW_FLAGS[@]}" opencode
