@@ -25,19 +25,25 @@ fi
 REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
 REPO_DIR="${INSTALL_ROOT}/${REPO_NAME}"
 BOOTSTRAP_COPY="${INSTALL_ROOT}/bootstrap.sh"
-profile=essential
+profile=daily
 dry_run=false
 
 usage() {
   cat <<'EOF'
-Usage: ./bootstrap.sh [--essential] [--full] [--root DIRECTORY] [--dry-run]
+Usage: ./bootstrap.sh [--profile NAME] [--root DIRECTORY] [--dry-run]
 
 Bootstrap a fresh Mac, authenticate GitHub, clone or update intelliDots, and
-run its installer. Essential profiles are installed by default.
+run its installer with the named profile. Profiles live in the checkout's
+profiles/ directory; see intelliDots/install.sh --help.
 
 Options:
-  --essential       Install essential profiles (default).
-  --full            Install expanded profiles where available.
+  --profile NAME    Profile to install. Default: daily
+  --air             Shorthand for --profile air: a Mac that is not a
+                     development machine (desktop and AI apps, no toolchains).
+  --daily           Shorthand for --profile daily (the default).
+  --everything      Shorthand for --profile everything.
+  --essential       Deprecated alias for --daily.
+  --full            Deprecated alias for --everything.
   --root DIRECTORY  Parent directory for the intelliDots checkout.
   --dry-run         Describe the work without installing, cloning, or logging in.
   -h, --help        Show this help.
@@ -51,8 +57,23 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --essential) profile=essential ;;
-    --full) profile=full ;;
+    --profile)
+      shift
+      [[ $# -gt 0 ]] || { echo "--profile requires a name." >&2; exit 2; }
+      profile="$1"
+      ;;
+    --profile=*) profile="${1#*=}" ;;
+    --air) profile=air ;;
+    --daily) profile=daily ;;
+    --everything) profile=everything ;;
+    --essential)
+      echo "Note: --essential is deprecated; using --profile daily." >&2
+      profile=daily
+      ;;
+    --full)
+      echo "Note: --full is deprecated; using --profile everything." >&2
+      profile=everything
+      ;;
     --root)
       shift
       [[ $# -gt 0 ]] || { echo "--root requires a directory." >&2; exit 2; }
@@ -95,7 +116,7 @@ Would:
   4. Install GitHub CLI when missing.
   5. Authenticate GitHub and configure Git credentials when needed.
   6. Clone intelliDots, or pull it with --ff-only when clean.
-  7. Run intelliDots/install.sh --${profile} --macos-defaults.
+  7. Run intelliDots/install.sh --profile ${profile} --macos-defaults.
 EOF
   exit 0
 fi
@@ -165,4 +186,4 @@ fi
 
 [[ -x "${REPO_DIR}/install.sh" ]] || { echo "Missing executable installer: ${REPO_DIR}/install.sh" >&2; exit 1; }
 echo "Starting the ${profile} configuration installation..."
-exec "${REPO_DIR}/install.sh" --"${profile}" --macos-defaults
+exec "${REPO_DIR}/install.sh" --profile "${profile}" --macos-defaults
