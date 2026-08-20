@@ -53,13 +53,21 @@ of machine:
 | `air` | core, mac-essentials, ai-essentials | 3 | 33 |
 | `air-plus` | air, plus iTerm2 on its own | 4 | 34 |
 | `daily` (default) | adds dev-essentials | 7 | 55 |
-| `everything` | every tier but optional | 9 | 85 |
+| `everything` | every tier but optional | 9 | 87 |
+| `pro` | everything, plus this workstation's container runtime | 9 | 88 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.
 `air-plus` is the same machine with iTerm2 borrowed out of dev-essentials,
 since a terminal emulator is not really a development tool and Terminal.app
 means setting the MesloLGS NF font by hand.
+
+`everything` and `pro` differ in what they are statements about:
+`everything` means "every tier", a fact about this repository, and is the
+right thing to test against; `pro` means "the MacBook Pro", a fact about one
+machine, and is where a per-machine choice like Docker Desktop over OrbStack
+gets recorded. Add machines as their own profiles rather than bending a tier
+to fit one of them.
 
 ### One-file fresh-Mac bootstrap
 

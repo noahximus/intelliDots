@@ -3,7 +3,8 @@
 # the machine usable.
 
 brew "ffmpeg"      # Command-line audio/video conversion and processing toolkit.
-brew "chromaprint" # Audio fingerprinting library (fpcalc) used by music taggers.
+brew "chromaprint" # Audio fingerprinting library (fpcalc); used by beets.
+brew "beets"       # Music library manager and tagger; uses chromaprint.
 brew "poppler"     # PDF rendering and utilities (pdftoppm, pdftotext, etc.).
 brew "librsvg"     # Converts and renders SVG files; used by document tooling.
 brew "pandoc"      # Universal document converter for Markdown, HTML, PDF, and more.

@@ -1,0 +1,43 @@
+# pro: the MacBook Pro -- a full development workstation.
+#
+# Every tier, like `everything`, plus the container runtime this machine
+# actually uses. The difference between the two is deliberate: `everything`
+# means "every tier", a statement about the repository, while `pro` means
+# "this machine", a statement about how it is set up. Keep machine-specific
+# choices here rather than pushing them into a tier.
+#
+#   ./install.sh --profile pro
+
+tiers:
+  - core
+  - mac-essentials
+  - mac-extras
+  - dev-essentials
+  - dev-extras
+  - ai-essentials
+  - ai-extras
+
+picks:
+  # Docker Desktop rather than OrbStack. They both provide the `docker` CLI
+  # and conflict, so tiers/optional.Brewfile keeps both and installs neither;
+  # this is where the choice for this machine gets recorded. OrbStack is the
+  # lighter of the two if that ever becomes worth switching for.
+  - docker-desktop
+
+options:
+  essentialDots:
+    macos-defaults: true
+    pipx: true
+  toolsDots.aiTools.localLLM:
+    with-local-llm: true
+    # Still opt-in even here: ~14GB of weights, macOS 26, Xcode 26. Force it
+    # for a single run with --with-turbo-fieldfare.
+    with-turbo-fieldfare: false
+
+# TG Pro is not listed. It is chosen by hardware rather than by profile --
+# install.sh adds it when mac-essentials is selected and the Mac has fans,
+# which this one does. See essentialDots/scripts/lib/hardware.sh.
+#
+# paragon-ntfs is also absent, and deliberately: its Homebrew cask is
+# `installer: manual`, so brew only stages FSInstaller.app and never installs
+# the driver. Run that installer and activate the license by hand.
