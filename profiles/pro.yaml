@@ -16,6 +16,7 @@ tiers:
   - dev-extras
   - ai-essentials
   - ai-extras
+  - ai-local
 
 picks:
   # Docker Desktop rather than OrbStack. They both provide the `docker` CLI

@@ -14,6 +14,7 @@ tiers:
   - dev-extras
   - ai-essentials
   - ai-extras
+  - ai-local
 
 options:
   essentialDots:

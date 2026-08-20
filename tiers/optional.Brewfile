@@ -19,6 +19,12 @@
 # cask "raycast" # Launcher + clipboard history + window management + snippets.
 # cask "maccy"   # Clipboard history only, much smaller.
 
+# Local model runtimes -- alternatives to ai-local's llama.cpp, which is the
+# one the local-llm wrapper and the CodeCompanion integration actually use.
+# Nothing in this repository is wired to either of these.
+# cask "ollama-app" # Local model runner, GUI plus a background daemon.
+# cask "lm-studio"  # GUI model browser and runner.
+
 # Python
 # brew "uv" # Fast installer; can pin CPython itself. Potential pyenv replacement.
 
