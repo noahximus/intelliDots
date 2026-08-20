@@ -6,6 +6,5 @@
 # Silicon, and roughly 14GB of model weights.
 
 brew "gemini-cli" # Google's Gemini command-line AI assistant.
-brew "aider"      # Terminal pair-programming agent.
 
 cask "antigravity"  # Google's AI-powered development environment.

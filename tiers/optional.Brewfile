@@ -25,6 +25,14 @@
 # cask "ollama-app" # Local model runner, GUI plus a background daemon.
 # cask "lm-studio"  # GUI model browser and runner.
 
+# Coding agents -- Claude Code and OpenCode are in ai-essentials and cover
+# this ground already, so a third is a duplicate rather than an addition.
+# brew "aider" # Terminal pair-programming agent; model-agnostic, commits to git.
+
+# HTTP clients -- curl ships with macOS and does the same work; this is
+# ergonomics for poking at APIs by hand, not a missing capability.
+# brew "httpie" # Friendly HTTP client: JSON bodies and colorized output.
+
 # Python
 # brew "uv" # Fast installer; can pin CPython itself. Potential pyenv replacement.
 

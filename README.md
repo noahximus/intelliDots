@@ -53,8 +53,8 @@ of machine:
 | `air` | core, mac-essentials, ai-essentials | 3 | 33 |
 | `air-plus` | air, plus iTerm2 on its own | 4 | 34 |
 | `daily` (default) | adds dev-essentials | 7 | 55 |
-| `everything` | every tier but optional | 9 | 85 |
-| `pro` | everything, plus this workstation's container runtime | 9 | 86 |
+| `everything` | every tier but optional | 9 | 83 |
+| `pro` | everything, plus this workstation's container runtime | 9 | 84 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.
