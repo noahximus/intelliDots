@@ -50,8 +50,8 @@ of machine:
 
 | Profile | Tiers | Nodes | Packages |
 | --- | --- | --- | --- |
-| `air` | core, mac-essentials, ai-essentials | 3 | 34 |
-| `daily` (default) | adds dev-essentials | 7 | 56 |
+| `air` | core, mac-essentials, ai-essentials | 3 | 33 |
+| `daily` (default) | adds dev-essentials | 7 | 55 |
 | `everything` | every tier but optional | 9 | 85 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
@@ -141,9 +141,19 @@ nodes:
 
 `options` are boolean flags forwarded to that node's own `install.sh` as
 `--<key>` when the effective value is `true`. A profile's own `options` for a
-node override these key-by-key; a matching CLI flag (`--macos-defaults`,
-`--pipx`, `--with-turbo-fieldfare`) forces one on for a single run on top of
-both.
+node override these key-by-key; a matching CLI flag forces one on or off for
+a single run on top of both:
+
+```bash
+./install.sh --no-macos-defaults    # install the profile, leave System Settings alone
+./install.sh --no-pipx
+./install.sh --with-turbo-fieldfare
+./install.sh --no-turbo-fieldfare
+```
+
+`--no-<key>` beats everything, including `--<key>` in the same command and in
+either order. Turning something off is the safe direction, so an explicit
+refusal is never silently overridden.
 
 Nodes install in the order they appear in `features.yaml`. `--only` and
 `--skip` narrow a run further, but they narrow *within* the selected tiers --

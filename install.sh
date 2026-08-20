@@ -18,7 +18,7 @@ dry_run=false
 bootstrap=true
 list_requested=false
 continue_on_error=true
-declare -a only=() skipped=() forced_options=()
+declare -a only=() skipped=() forced_options=() disabled_options=()
 declare -a succeeded=() failed=()
 declare -a cli_tiers=() picks=()
 declare -a selected_tiers=()
@@ -61,8 +61,11 @@ Options:
   --list                 List the selection file's resolved plan and exit.
   --no-bootstrap         Do not install Homebrew/yq when missing.
   --macos-defaults       Force essentialDots' macos-defaults option on for this run.
+  --no-macos-defaults    Force it off, whatever the profile says.
   --pipx                 Force essentialDots' pipx option on for this run.
+  --no-pipx              Force it off, whatever the profile says.
   --with-turbo-fieldfare Force localLLM's with-turbo-fieldfare option on for this run.
+  --no-turbo-fieldfare   Force it off, whatever the profile says.
   --continue-on-error    Continue after a node fails (default).
   --stop-on-error        Stop at the first failing node instead.
   --dry-run              Show what would run without changing anything.
@@ -107,8 +110,11 @@ while [[ $# -gt 0 ]]; do
     --skip=*) skipped+=("${1#*=}") ;;
     --no-bootstrap) bootstrap=false ;;
     --macos-defaults) forced_options+=(macos-defaults) ;;
+    --no-macos-defaults) disabled_options+=(macos-defaults) ;;
     --pipx) forced_options+=(pipx) ;;
+    --no-pipx) disabled_options+=(pipx) ;;
     --with-turbo-fieldfare) forced_options+=(with-turbo-fieldfare) ;;
+    --no-turbo-fieldfare) disabled_options+=(with-turbo-fieldfare) ;;
     --continue-on-error) continue_on_error=true ;;
     --stop-on-error) continue_on_error=false ;;
     --dry-run) dry_run=true ;;
@@ -156,14 +162,22 @@ profile_node_options() {
 }
 
 # Prints a node's option keys whose effective value is true: features.yaml's
-# default, overridden key-by-key by the profile's own options for
-# that node, overridden again by a matching --<key> CLI flag (forced_options)
-# -- one key per line.
+# default, overridden key-by-key by the profile's own options for that node,
+# overridden again by a matching --<key> or --no-<key> CLI flag -- one key per
+# line.
+#
+# --no-<key> beats everything, including --<key>. Turning something off is the
+# safe direction, so an explicit refusal is never silently overridden -- there
+# has to be a way to say "install this profile but do not touch my macOS
+# settings" and have it hold.
 node_true_options() {
   local id="$1" key value merged
   merged="$(jq -c -s '.[0] * .[1]' <(master_node_options "${id}") <(profile_node_options "${id}"))"
   while IFS=$'\t' read -r key value; do
     [[ -n "${key}" ]] || continue
+    if [[ "${#disabled_options[@]}" -gt 0 ]] && is_in "${key}" "${disabled_options[@]}"; then
+      continue
+    fi
     if [[ "${value}" == "true" ]]; then
       printf '%s\n' "${key}"
     elif [[ "${#forced_options[@]}" -gt 0 ]] && is_in "${key}" "${forced_options[@]}"; then

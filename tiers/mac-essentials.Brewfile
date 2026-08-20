@@ -24,4 +24,3 @@ cask "obsidian"         # Markdown knowledge base and note-taking app.
 cask "spotify"          # Music and podcast streaming app.
 cask "whatsapp"         # WhatsApp desktop messaging app.
 cask "viber"            # Viber desktop messaging and calling app.
-cask "messenger"        # Facebook Messenger desktop messaging app.
