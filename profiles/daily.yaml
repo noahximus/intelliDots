@@ -1,0 +1,18 @@
+# daily: a working development machine. The default profile.
+#
+# Every domain at its essentials tier -- the desktop, the toolchains, and the
+# AI assistants -- without the extras. This is what a plain ./install.sh
+# installs.
+#
+#   ./install.sh
+
+tiers:
+  - core
+  - mac-essentials
+  - dev-essentials
+  - ai-essentials
+
+options:
+  essentialDots:
+    macos-defaults: true
+    pipx: true

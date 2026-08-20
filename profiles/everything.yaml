@@ -1,0 +1,25 @@
+# everything: every tier except optional.
+#
+# optional is never pulled by a profile, by design -- it holds mutually
+# exclusive choices (docker-desktop vs orbstack, raycast vs maccy) that
+# cannot all be installed at once. Reach those with --pick.
+#
+#   ./install.sh --profile everything
+
+tiers:
+  - core
+  - mac-essentials
+  - mac-extras
+  - dev-essentials
+  - dev-extras
+  - ai-essentials
+  - ai-extras
+
+options:
+  essentialDots:
+    macos-defaults: true
+    pipx: true
+  toolsDots.aiTools.localLLM:
+    # Still not TurboFieldfare: ~14GB of weights, and it needs macOS 26 plus
+    # Xcode 26. Even "everything" leaves that to --with-turbo-fieldfare.
+    with-local-llm: true

@@ -1,0 +1,18 @@
+# air: a Mac that is not a development machine.
+#
+# The desktop, the apps, and the AI assistants -- no language runtimes, no
+# editors, no build tooling. Named for the MacBook Air this was written for.
+#
+#   ./install.sh --profile air
+
+tiers:
+  - core
+  - mac-essentials
+  - ai-essentials
+
+options:
+  essentialDots:
+    macos-defaults: true
+    # pipx must stay off here: the pipx formula lives in dev-essentials, so
+    # on this profile there is no pipx for install-pipx.sh to call.
+    pipx: false

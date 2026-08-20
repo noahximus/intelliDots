@@ -12,8 +12,8 @@ done
 ROOT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
 MANIFEST="${ROOT_DIR}/features.yaml"
 
-cli_profile=""
-selection_file="${ROOT_DIR}/features-default.yaml"
+profile_name="daily"
+profile_file=""
 dry_run=false
 bootstrap=true
 list_requested=false
@@ -28,25 +28,28 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh [options]
 
-Installs the nodes listed in a selection file -- features-default.yaml
-(the default), features-essential.yaml (every node, essential profile,
-replaces the old install-essential.sh), features-all.yaml (every node,
-full profile, replaces the old install-everything.sh), or a file of your
-own. A selection file just lists node ids (+ optional profile and per-node
-option overrides); each id's path and default options come from
-features.yaml, the master registry.
+Installs a profile: a named set of tiers. profiles/air.yaml is a Mac that
+is not a development machine, profiles/daily.yaml (the default) is a working
+development machine, profiles/everything.yaml is every tier but optional.
+
+A tier is both a package list (tiers/<NAME>.Brewfile) and a node selector:
+every node in features.yaml whose `tier` is in the profile's list installs,
+in registry order. Packages from all selected tiers are merged and installed
+in one brew bundle before any node runs.
 
 Each node may declare an `options` map in features.yaml (booleans forwarded
-as `--<key>` to that node's own install.sh). A selection file's own options
-for a node override features.yaml's key-by-key. The flags below force a
-matching option on for a single run on top of both, without editing either
-file.
+as `--<key>` to that node's own install.sh). A profile's own options for a
+node override features.yaml's key-by-key. The flags below force a matching
+option on for a single run on top of both, without editing either file.
 
 Options:
-  --file PATH           Selection file to install from. Relative names are
-                         resolved from this checkout. Default: features-default.yaml
-  --essential           Force the essential profile for every node this run.
-  --full                Force the full profile for every node this run.
+  --profile NAME        Profile to install: profiles/NAME.yaml. A profile
+                         names the tiers to install; every node whose tier is
+                         in that list installs. Default: daily
+  --file PATH           Install from a profile file at an explicit path.
+                         Relative names are resolved from this checkout.
+  --essential           Deprecated alias for --profile daily.
+  --full                Deprecated alias for --profile everything.
   --tier NAME            Install this tier's packages; repeatable. Overrides the
                          tier set implied by the profile. Names come from
                          tiers/<NAME>.Brewfile.
@@ -73,6 +76,13 @@ is_in() {
   return 1
 }
 
+# --essential/--full predate profiles. bootstrap.sh and sync.sh still pass
+# them, so they map onto the nearest profile rather than failing.
+deprecated_alias() {
+  echo "Note: $1 is deprecated; using --profile $2." >&2
+  profile_name="$2"
+}
+
 resolve_file() {
   local requested="$1"
   if [[ "${requested}" = /* ]]; then printf '%s' "${requested}";
@@ -81,10 +91,12 @@ resolve_file() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --file) shift; [[ $# -gt 0 ]] || { echo "--file requires a path" >&2; exit 2; }; selection_file="$(resolve_file "$1")" ;;
-    --file=*) selection_file="$(resolve_file "${1#*=}")" ;;
-    --essential) cli_profile=essential ;;
-    --full) cli_profile=full ;;
+    --file) shift; [[ $# -gt 0 ]] || { echo "--file requires a path" >&2; exit 2; }; profile_file="$(resolve_file "$1")" ;;
+    --file=*) profile_file="$(resolve_file "${1#*=}")" ;;
+    --profile) shift; [[ $# -gt 0 ]] || { echo "--profile requires a name" >&2; exit 2; }; profile_name="$1" ;;
+    --profile=*) profile_name="${1#*=}" ;;
+    --essential) deprecated_alias --essential daily ;;
+    --full) deprecated_alias --full everything ;;
     --tier) shift; [[ $# -gt 0 ]] || { echo "--tier requires a name" >&2; exit 2; }; cli_tiers+=("$1") ;;
     --tier=*) cli_tiers+=("${1#*=}") ;;
     --pick) shift; [[ $# -gt 0 ]] || { echo "--pick requires a name" >&2; exit 2; }; picks+=("$1") ;;
@@ -108,7 +120,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -f "${MANIFEST}" ]] || { echo "Missing manifest: ${MANIFEST}" >&2; exit 1; }
-[[ -f "${selection_file}" ]] || { echo "Missing selection file: ${selection_file}" >&2; exit 1; }
+[[ -n "${profile_file}" ]] || profile_file="${ROOT_DIR}/profiles/${profile_name}.yaml"
+[[ -f "${profile_file}" ]] || { echo "Missing profile: ${profile_file}" >&2; exit 1; }
 
 # Looks up a node's `path` from the master registry (features.yaml) by id.
 master_node_path() {
@@ -120,28 +133,35 @@ master_node_options() {
   yq -o=json ".nodes[] | select(.id == \"$1\") | .options // {}" "${MANIFEST}" | jq -c '.'
 }
 
-# Reads the selection file's top-level profile, if any (empty otherwise).
-selection_profile() {
-  yq -o=json '.profile // ""' "${selection_file}" | jq -r '.'
+# Reads the profile's tier list, one per line.
+profile_tiers() {
+  yq -o=json '.tiers // []' "${profile_file}" | jq -r '.[]'
 }
 
-# Reads node ids from the selection file, in file order.
-selection_node_ids() {
-  yq -o=json '.nodes' "${selection_file}" | jq -r '.[].id'
+# Every node whose tier is in the selected set, in registry order. This is
+# the whole of node selection now -- there is no separate list to keep in
+# sync with the tiers, which is what used to let a node and its own packages
+# disagree (the vsCode cask installing without the vsCode extensions).
+selected_node_ids() {
+  local id tier
+  while IFS=$'\t' read -r id tier; do
+    [[ -n "${id}" ]] || continue
+    is_in "${tier}" "${selected_tiers[@]}" && printf '%s\n' "${id}"
+  done < <(yq -o=json '.nodes' "${MANIFEST}" | jq -r '.[] | [.id, (.tier // "")] | @tsv')
 }
 
-# Reads a node's inline options override from the selection file, as compact JSON.
-selection_node_options() {
-  yq -o=json ".nodes[] | select(.id == \"$1\") | .options // {}" "${selection_file}" | jq -c '.'
+# Reads a node's options override from the profile, as compact JSON.
+profile_node_options() {
+  yq -o=json ".options.\"$1\" // {}" "${profile_file}" | jq -c '.'
 }
 
 # Prints a node's option keys whose effective value is true: features.yaml's
-# default, overridden key-by-key by the selection file's own options for
+# default, overridden key-by-key by the profile's own options for
 # that node, overridden again by a matching --<key> CLI flag (forced_options)
 # -- one key per line.
 node_true_options() {
   local id="$1" key value merged
-  merged="$(jq -c -s '.[0] * .[1]' <(master_node_options "${id}") <(selection_node_options "${id}"))"
+  merged="$(jq -c -s '.[0] * .[1]' <(master_node_options "${id}") <(profile_node_options "${id}"))"
   while IFS=$'\t' read -r key value; do
     [[ -n "${key}" ]] || continue
     if [[ "${value}" == "true" ]]; then
@@ -161,10 +181,19 @@ resolve_tiers() {
     selected_tiers=("${cli_tiers[@]}")
     return
   fi
-  case "${resolved_profile}" in
-    full) selected_tiers=(core mac-essentials mac-extras dev-essentials dev-extras ai-essentials ai-extras) ;;
-    *) selected_tiers=(core mac-essentials dev-essentials ai-essentials) ;;
-  esac
+  # Read loop rather than mapfile: on a fresh Mac this script runs before it
+  # has bootstrapped Homebrew, so /usr/bin/env bash is still macOS's system
+  # bash 3.2, which has no mapfile/readarray.
+  local tier
+  selected_tiers=()
+  while IFS= read -r tier; do
+    [[ -n "${tier}" ]] || continue
+    selected_tiers+=("${tier}")
+  done < <(profile_tiers)
+  [[ "${#selected_tiers[@]}" -gt 0 ]] || {
+    echo "Profile names no tiers: ${profile_file}" >&2
+    return 1
+  }
 }
 
 # Fanless Macs -- every Apple Silicon MacBook Air, and the 12-inch MacBook --
@@ -226,11 +255,8 @@ merge_tier_brewfiles() {
 if [[ "${list_requested}" == true ]]; then
   command -v yq >/dev/null 2>&1 || { echo "yq is required (brew install yq)." >&2; exit 1; }
   command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
-  resolved_profile="${cli_profile:-$(selection_profile)}"
-  resolved_profile="${resolved_profile:-essential}"
   resolve_tiers
-  echo "Selection file: ${selection_file}"
-  echo "Profile:        ${resolved_profile}"
+  echo "Profile:        ${profile_file}"
   echo "Tiers:          ${selected_tiers[*]}"
   [[ "${#picks[@]}" -eq 0 ]] || echo "Picks:          ${picks[*]}"
   if machine_has_fans; then
@@ -245,7 +271,7 @@ if [[ "${list_requested}" == true ]]; then
     path="$(master_node_path "${id}")"
     opts="$(node_true_options "${id}" | paste -sd, - 2>/dev/null)"
     printf '%-38s %-40s %s\n' "${id}" "${path}" "${opts:--}"
-  done < <(selection_node_ids)
+  done < <(selected_node_ids)
   exit 0
 fi
 
@@ -297,9 +323,6 @@ if ! command -v yq >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
 
-resolved_profile="${cli_profile:-$(selection_profile)}"
-resolved_profile="${resolved_profile:-essential}"
-
 run_node() {
   local id="$1" path installer
   path="$(master_node_path "${id}")"
@@ -308,7 +331,9 @@ run_node() {
   installer="${checkout}/install.sh"
   # Packages come from the merged tier Brewfile installed once before this
   # loop, so every node runs with brew disabled and does config work only.
-  local -a install_args=(--"${resolved_profile}" --no-brew)
+  # Profile flags are no longer forwarded: a node's tier already decided
+  # whether it runs, and nodes have nothing left to vary by profile.
+  local -a install_args=(--no-brew)
 
   local option
   while IFS= read -r option; do
@@ -369,10 +394,10 @@ while IFS= read -r id; do
     failed+=("${id}")
     [[ "${continue_on_error}" == true ]] || break
   fi
-done < <(selection_node_ids)
+done < <(selected_node_ids)
 
 if [[ "${#only[@]}" -gt 0 && "${matched}" == false ]]; then
-  echo "No node in ${selection_file} matched: ${only[*]}" >&2
+  echo "No node in tiers [${selected_tiers[*]}] matched: ${only[*]}" >&2
   exit 2
 fi
 
