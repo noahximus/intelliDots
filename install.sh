@@ -20,6 +20,9 @@ list_requested=false
 continue_on_error=true
 declare -a only=() skipped=() forced_options=()
 declare -a succeeded=() failed=()
+declare -a cli_tiers=() picks=()
+declare -a selected_tiers=()
+TIERS_DIR="${ROOT_DIR}/tiers"
 
 usage() {
   cat <<'EOF'
@@ -44,6 +47,11 @@ Options:
                          resolved from this checkout. Default: features-default.yaml
   --essential           Force the essential profile for every node this run.
   --full                Force the full profile for every node this run.
+  --tier NAME            Install this tier's packages; repeatable. Overrides the
+                         tier set implied by the profile. Names come from
+                         tiers/<NAME>.Brewfile.
+  --pick TOKEN           Install one commented entry from tiers/optional.Brewfile
+                         by name (e.g. --pick orbstack); repeatable.
   --only ID              Install only this node from the selection; may be
                          repeated.
   --skip ID              Skip a node from the selection; may be repeated.
@@ -77,6 +85,10 @@ while [[ $# -gt 0 ]]; do
     --file=*) selection_file="$(resolve_file "${1#*=}")" ;;
     --essential) cli_profile=essential ;;
     --full) cli_profile=full ;;
+    --tier) shift; [[ $# -gt 0 ]] || { echo "--tier requires a name" >&2; exit 2; }; cli_tiers+=("$1") ;;
+    --tier=*) cli_tiers+=("${1#*=}") ;;
+    --pick) shift; [[ $# -gt 0 ]] || { echo "--pick requires a name" >&2; exit 2; }; picks+=("$1") ;;
+    --pick=*) picks+=("${1#*=}") ;;
     --only) shift; [[ $# -gt 0 ]] || { echo "--only requires a node id" >&2; exit 2; }; only+=("$1") ;;
     --only=*) only+=("${1#*=}") ;;
     --skip) shift; [[ $# -gt 0 ]] || { echo "--skip requires a node id" >&2; exit 2; }; skipped+=("$1") ;;
@@ -140,13 +152,92 @@ node_true_options() {
   done < <(printf '%s' "${merged}" | jq -r 'to_entries[] | [.key, .value] | @tsv')
 }
 
+# Packages are declared per tier under tiers/, not per node, so Homebrew
+# resolves each formula once per run instead of once per node that named it
+# (stow alone appeared in 8 of the 13 old per-node Brewfiles). Nodes are still
+# selected by the selection file; only their packages moved here.
+resolve_tiers() {
+  if [[ "${#cli_tiers[@]}" -gt 0 ]]; then
+    selected_tiers=("${cli_tiers[@]}")
+    return
+  fi
+  case "${resolved_profile}" in
+    full) selected_tiers=(core mac-essentials mac-extras dev-essentials dev-extras ai-essentials ai-extras) ;;
+    *) selected_tiers=(core mac-essentials dev-essentials ai-essentials) ;;
+  esac
+}
+
+# Fanless Macs -- every Apple Silicon MacBook Air, and the 12-inch MacBook --
+# have nothing for TG Pro to report on or control, so it is skipped there.
+# Model Name is used rather than the model identifier because Apple's
+# identifiers stopped encoding the family ("Mac14,2" is an M2 Air) while the
+# marketing name did not. ioreg is not an option: fan data moved behind
+# IOHIDEventSystemClient on Apple Silicon and is invisible to `ioreg -c AppleSMC`.
+machine_has_fans() {
+  local model
+  model="$(system_profiler SPHardwareDataType 2>/dev/null |
+    awk -F': ' '/Model Name/ { print $2; exit }')"
+  case "${model}" in
+    "MacBook Air" | "MacBook") return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Uncomments one named entry from tiers/optional.Brewfile into the merged file
+# for this run only. optional/ is never pulled by a profile, so this is the
+# sole path by which docker-desktop, orbstack, raycast, uv, and the work-comms
+# casks get installed.
+append_picks() {
+  local merged="$1" pick line
+  for pick in "${picks[@]}"; do
+    line="$(sed -nE "s/^[[:space:]]*#[[:space:]]*((brew|cask) \"${pick}\".*)$/\1/p" \
+      "${TIERS_DIR}/optional.Brewfile" | head -1)"
+    if [[ -z "${line}" ]]; then
+      echo "No entry named '${pick}' in ${TIERS_DIR}/optional.Brewfile" >&2
+      return 1
+    fi
+    printf '%s\n' "${line}" >>"${merged}"
+  done
+}
+
+merge_tier_brewfiles() {
+  local merged="$1" tier file
+  : >"${merged}"
+  for tier in "${selected_tiers[@]}"; do
+    file="${TIERS_DIR}/${tier}.Brewfile"
+    [[ -f "${file}" ]] || { echo "Unknown tier: ${tier} (no ${file})" >&2; return 1; }
+    cat "${file}" >>"${merged}"
+  done
+
+  # TG Pro is the one package chosen by hardware rather than by tier: it is
+  # only meaningful where there are fans to report on. macos-defaults.sh
+  # applies the matching guard to its preference keys.
+  if is_in mac-essentials "${selected_tiers[@]}" && machine_has_fans; then
+    printf 'cask "tg-pro" # Auto-selected: this Mac has fans.\n' >>"${merged}"
+  fi
+
+  [[ "${#picks[@]}" -eq 0 ]] || append_picks "${merged}" || return 1
+
+  # brew bundle tolerates duplicate lines, but deduping keeps --list readable
+  # and makes the "one declaration per package" property easy to verify.
+  sort -u -o "${merged}" "${merged}"
+}
+
 if [[ "${list_requested}" == true ]]; then
   command -v yq >/dev/null 2>&1 || { echo "yq is required (brew install yq)." >&2; exit 1; }
   command -v jq >/dev/null 2>&1 || { echo "jq is required." >&2; exit 1; }
   resolved_profile="${cli_profile:-$(selection_profile)}"
   resolved_profile="${resolved_profile:-essential}"
+  resolve_tiers
   echo "Selection file: ${selection_file}"
   echo "Profile:        ${resolved_profile}"
+  echo "Tiers:          ${selected_tiers[*]}"
+  [[ "${#picks[@]}" -eq 0 ]] || echo "Picks:          ${picks[*]}"
+  if machine_has_fans; then
+    echo "Fans:           yes (tg-pro will be included with mac-essentials)"
+  else
+    echo "Fans:           no (tg-pro skipped)"
+  fi
   echo
   printf '%-38s %-40s %s\n' ID PATH OPTIONS
   while IFS= read -r id; do
@@ -215,7 +306,9 @@ run_node() {
   [[ -n "${path}" && "${path}" != "null" ]] || { echo "Unknown node id (not in features.yaml): ${id}" >&2; return 1; }
   local checkout="${ROOT_DIR}/${path}"
   installer="${checkout}/install.sh"
-  local -a install_args=(--"${resolved_profile}")
+  # Packages come from the merged tier Brewfile installed once before this
+  # loop, so every node runs with brew disabled and does config work only.
+  local -a install_args=(--"${resolved_profile}" --no-brew)
 
   local option
   while IFS= read -r option; do
@@ -232,6 +325,31 @@ run_node() {
     "${installer}" "${install_args[@]}"
   fi
 }
+
+# mac-essentials declares both third-party taps, and Homebrew refuses to load
+# formulae from an untrusted tap. This ran inside essentialDots' brew stage
+# before packages were centralized; it has to happen here now, ahead of the
+# single bundle run.
+trust_required_homebrew_taps() {
+  mkdir -p "${XDG_CONFIG_HOME:-${HOME}/.config}/homebrew"
+  brew trust --tap felixkratz/formulae
+  brew trust --tap nikitabobko/tap
+}
+
+resolve_tiers
+MERGED_BREWFILE="$(mktemp -t intellidots-brewfile)"
+trap 'rm -f "${MERGED_BREWFILE}"' EXIT
+merge_tier_brewfiles "${MERGED_BREWFILE}"
+
+echo
+echo "==> packages (tiers: ${selected_tiers[*]})"
+if [[ "${dry_run}" == true ]]; then
+  echo "Would install $(grep -cE '^[[:space:]]*(brew|cask) ' "${MERGED_BREWFILE}") packages from the merged tier Brewfile:"
+  sed -nE 's/^[[:space:]]*(brew|cask) "([^"]+)".*/  \1 \2/p' "${MERGED_BREWFILE}"
+else
+  trust_required_homebrew_taps
+  "${ROOT_DIR}/essentialDots/scripts/install-brew-bundle.sh" "${MERGED_BREWFILE}"
+fi
 
 matched=false
 while IFS= read -r id; do

@@ -4,7 +4,6 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="$(cd "${PROJECT_DIR}/../../.." && pwd)/features.yaml"
 NODE_ID="toolsDots.devTools.vsCode"
-BREWFILE="${PROJECT_DIR}/Brewfile-essential"
 EXTENSIONSFILE=""
 run_brew=true
 run_extensions=true
@@ -14,7 +13,7 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh [--essential] [--full] [--no-brew] [--no-extensions] [--extensionsfile FILE|NAME] [--dry-run]
 
-Installs VS Code and the tracked extension set. The essential Brewfile is the
+Installs the tracked VS Code extension set. The editor itself is installed
 default; --full is accepted for a consistent component interface and
 currently installs the same package set.
 
@@ -41,10 +40,10 @@ resolve_extensionsfile() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    # No distinct full Brewfile yet; both branches point at the same file so
-    # the root installer can pass --full uniformly across every component.
-    --essential) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
-    --full) BREWFILE="${PROJECT_DIR}/Brewfile-essential" ;;
+    # Profile flags are accepted so the root installer can pass them uniformly,
+    # but they no longer select a Brewfile: packages come from tiers/.
+    --essential) ;;
+    --full) ;;
     --no-brew) run_brew=false ;;
     --no-extensions) run_extensions=false ;;
     --extensionsfile)
@@ -93,7 +92,6 @@ extension_installed() {
 }
 
 if [[ "${dry_run}" == true ]]; then
-  [[ "${run_brew}" == true ]] && echo "Would install ${BREWFILE}"
   if [[ "${run_extensions}" == true ]]; then
     while IFS= read -r extension; do
       echo "Would ensure VS Code extension installed: ${extension}"
@@ -103,8 +101,8 @@ if [[ "${dry_run}" == true ]]; then
 fi
 
 if [[ "${run_brew}" == true ]]; then
-  command -v brew >/dev/null 2>&1 || { echo "Homebrew is required." >&2; exit 1; }
-  brew bundle --file="${BREWFILE}" --no-upgrade
+  echo "Note: this component no longer installs its own packages." >&2
+  echo "      Run the repository's root install.sh to install from tiers/." >&2
 fi
 
 if [[ "${run_extensions}" == true ]]; then
