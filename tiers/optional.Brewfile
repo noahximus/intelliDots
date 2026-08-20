@@ -33,6 +33,31 @@
 # ergonomics for poking at APIs by hand, not a missing capability.
 # brew "httpie" # Friendly HTTP client: JSON bodies and colorized output.
 
+# GUI clients -- no database or HTTP work in this setup declares a need for
+# these, and both are heavier than the CLI tools already installed.
+# cask "tableplus" # Database GUI.
+# cask "bruno"     # Local-first API client; requests stored as files in git.
+
+# Work communication -- which one depends on the employer, not the machine.
+# cask "slack" # Team chat and messaging.
+# cask "zoom"  # Video meetings.
+
+# Media playback -- QuickTime cannot play mkv/avi, so this is worth having
+# if you watch video here. No player was installed before, which suggests
+# this machine does not.
+# cask "iina" # mpv-based player with a native macOS interface.
+
+# Mac utilities
+# cask "keka" # Archives beyond zip: rar, 7z, split and encrypted.
+# brew "mas"  # Mac App Store CLI. Enables `mas "App", id: N` lines in a
+            # Brewfile -- nothing here uses that yet.
+
+# CLI tools that improve on something already working. Kept out of
+# dev-extras because ps, wc and a stopwatch are not actually broken.
+# brew "procs"     # Process viewer; ps replacement.
+# brew "tokei"     # Source lines of code, per language.
+# brew "hyperfine" # Benchmarks a command over many runs; compares two.
+
 # Python
 # brew "uv" # Fast installer; can pin CPython itself. Potential pyenv replacement.
 

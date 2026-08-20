@@ -10,12 +10,10 @@ tap "felixkratz/formulae" # Extra formulae used by macOS UI tools like borders.
 tap "nikitabobko/tap"     # Official tap for the AeroSpace window manager cask.
 
 brew "borders"         # Draws window borders that pair well with AeroSpace.
-brew "mas"             # Mac App Store CLI, so Brewfiles can manage MAS apps too.
 cask "aerospace"       # Tiling window manager for macOS.
 cask "stats"           # Menu-bar system monitor (CPU, GPU, RAM, disk, network).
 cask "jordanbaird-ice" # Menu-bar overflow management.
 cask "appcleaner"      # Leftover-free application removal.
-cask "keka"            # Archive creation and extraction.
 
 cask "google-chrome"    # Web browser.
 cask "google-drive"     # Google Drive sync client.
