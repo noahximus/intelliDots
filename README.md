@@ -50,11 +50,11 @@ of machine:
 
 | Profile | Tiers | Nodes | Packages |
 | --- | --- | --- | --- |
-| `air` | core, mac-essentials, ai-essentials | 3 | 31 |
-| `air-plus` | air, plus iTerm2 on its own | 4 | 32 |
-| `daily` (default) | adds dev-essentials | 7 | 53 |
-| `everything` | every tier but optional | 9 | 73 |
-| `pro` | everything, plus this workstation's container runtime | 9 | 74 |
+| `air` | core, mac-essentials, ai-essentials | 3 | 32 |
+| `air-plus` | air, plus iTerm2 on its own | 4 | 33 |
+| `daily` (default) | adds dev-essentials | 7 | 54 |
+| `everything` | every tier but optional | 9 | 74 |
+| `pro` | everything, plus this workstation's container runtime | 9 | 75 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.

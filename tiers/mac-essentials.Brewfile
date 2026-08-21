@@ -20,5 +20,6 @@ cask "google-drive"     # Google Drive sync client.
 cask "microsoft-office" # Word, Excel, PowerPoint, Outlook -- and OneDrive, bundled.
 cask "obsidian"         # Markdown knowledge base and note-taking app.
 cask "spotify"          # Music and podcast streaming app.
+cask "iina"             # Video player; QuickTime cannot play mkv or avi.
 cask "whatsapp"         # WhatsApp desktop messaging app.
 cask "viber"            # Viber desktop messaging and calling app.

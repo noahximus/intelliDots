@@ -42,11 +42,6 @@
 # cask "slack" # Team chat and messaging.
 # cask "zoom"  # Video meetings.
 
-# Media playback -- QuickTime cannot play mkv/avi, so this is worth having
-# if you watch video here. No player was installed before, which suggests
-# this machine does not.
-# cask "iina" # mpv-based player with a native macOS interface.
-
 # Mac utilities
 # cask "keka" # Archives beyond zip: rar, 7z, split and encrypted.
 # brew "mas"  # Mac App Store CLI. Enables `mas "App", id: N` lines in a
