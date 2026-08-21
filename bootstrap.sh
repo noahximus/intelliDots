@@ -19,7 +19,12 @@ if [[ -f "${SCRIPT_DIR}/features.yaml" ]]; then
   # install root when run from inside an existing checkout.
   INSTALL_ROOT="${MY_CONFIG_ROOT:-$(dirname "${SCRIPT_DIR}")}"
 else
-  INSTALL_ROOT="${MY_CONFIG_ROOT:-${HOME}/Developer/myConfigs}"
+  # ~/.config, so the checkout sits with the rest of the configuration rather
+  # than in a source tree. It ends up beside the very directories stow links
+  # back into it (~/.config/zsh, ~/.config/aerospace, ...), which is fine:
+  # nothing walks ~/.config recursively, and the uninstaller removes only
+  # three named paths there, none of them this one.
+  INSTALL_ROOT="${MY_CONFIG_ROOT:-${HOME}/.config}"
 fi
 
 REPO_URL="https://github.com/${GITHUB_OWNER}/${REPO_NAME}.git"
@@ -45,11 +50,14 @@ Options:
   --essential       Deprecated alias for --daily.
   --full            Deprecated alias for --everything.
   --root DIRECTORY  Parent directory for the intelliDots checkout.
+                     Default: ~/.config, giving ~/.config/intelliDots.
+                     Ignored when run from inside an existing checkout, which
+                     reuses wherever that checkout already lives.
   --dry-run         Describe the work without installing, cloning, or logging in.
   -h, --help        Show this help.
 
 Environment:
-  MY_CONFIG_ROOT  Alternative installation root.
+  MY_CONFIG_ROOT  Alternative installation root. Default: ~/.config
   GITHUB_OWNER    GitHub account or organization. Default: noahximus
   REPO_NAME       Repository name. Default: intelliDots
 EOF

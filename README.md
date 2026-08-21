@@ -71,11 +71,15 @@ to fit one of them.
 
 ### One-file fresh-Mac bootstrap
 
-Download `bootstrap.sh`, then run it. It creates `~/Developer/myConfigs`,
-saves a reusable copy of itself there, installs Apple's command-line tools,
+Download `bootstrap.sh`, then run it. It installs Apple's command-line tools,
 Homebrew, GitHub CLI, and `yq` as needed, authenticates GitHub, clones (or
-updates) `intelliDots`, and runs `install.sh` with the chosen profile and
+fast-forwards) `intelliDots` into `~/.config/intelliDots`, keeps a reusable
+copy of itself beside it, and runs `install.sh` with the chosen profile and
 `--macos-defaults`.
+
+Override the checkout location with `--root` or `MY_CONFIG_ROOT`. Running the
+script from inside an existing checkout ignores both and reuses wherever that
+checkout already lives, so moving a clone does not need a flag.
 
 ```bash
 chmod +x "$HOME/Downloads/bootstrap.sh"
@@ -83,7 +87,7 @@ chmod +x "$HOME/Downloads/bootstrap.sh"
 "$HOME/Downloads/bootstrap.sh" --air
 ./bootstrap.sh --everything
 ./bootstrap.sh --dry-run
-./bootstrap.sh --root "$HOME/Developer/myConfigs"
+./bootstrap.sh --root "$HOME/Developer/myConfigs"   # override the default root
 ```
 
 ## Tiers and profiles
