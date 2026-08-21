@@ -2,6 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Shared with every other stow-using component so a moved checkout can be
+# relinked instead of aborting with "existing target is not owned by stow".
+# shellcheck source=../../../essentialDots/scripts/lib/stow-migrate.sh
+. "${PROJECT_DIR}/../../../essentialDots/scripts/lib/stow-migrate.sh"
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -46,5 +50,6 @@ if [[ "${run_brew}" == true ]]; then
 fi
 
 command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }
+stow_migrate "${PROJECT_DIR}" "${HOME}" superfile
 stow "${STOW_FLAGS[@]}" superfile
 echo "superfile installed."

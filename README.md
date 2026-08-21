@@ -81,6 +81,13 @@ Override the checkout location with `--root` or `MY_CONFIG_ROOT`. Running the
 script from inside an existing checkout ignores both and reuses wherever that
 checkout already lives, so moving a clone does not need a flag.
 
+Moving a checkout is safe. Every stow-using component relinks symlinks left
+behind by a previous location before it stows, so `install.sh` from the new
+path just works instead of aborting with "existing target is not owned by
+stow". A link is only relinked when it points at the matching
+node/package/path inside a real intelliDots checkout; anything else is left
+alone for stow to flag as the genuine conflict it is.
+
 ```bash
 chmod +x "$HOME/Downloads/bootstrap.sh"
 "$HOME/Downloads/bootstrap.sh"           # daily, the default

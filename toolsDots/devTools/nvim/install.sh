@@ -2,6 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Shared with every other stow-using component so a moved checkout can be
+# relinked instead of aborting with "existing target is not owned by stow".
+# shellcheck source=../../../essentialDots/scripts/lib/stow-migrate.sh
+. "${PROJECT_DIR}/../../../essentialDots/scripts/lib/stow-migrate.sh"
 MANIFEST="$(cd "${PROJECT_DIR}/../../.." && pwd)/features.yaml"
 NODE_ID="toolsDots.devTools.nvim"
 # --restow removes and relinks every managed target, so reruns self-heal any
@@ -96,6 +100,7 @@ if [[ "${install_codex_acp}" == true ]]; then
 fi
 
 command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }
+stow_migrate "${PROJECT_DIR}" "${HOME}" nvim
 stow "${STOW_FLAGS[@]}" nvim
 if [[ "${sync_plugins}" == true ]]; then
   # Headless-launches Neovim so lazy.nvim can resolve and install plugins

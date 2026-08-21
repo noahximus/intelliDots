@@ -2,6 +2,10 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Shared with every other stow-using component so a moved checkout can be
+# relinked instead of aborting with "existing target is not owned by stow".
+# shellcheck source=../../../essentialDots/scripts/lib/stow-migrate.sh
+. "${PROJECT_DIR}/../../../essentialDots/scripts/lib/stow-migrate.sh"
 # --restow removes and relinks every managed target, so reruns self-heal any
 # manually deleted symlinks; --no-folding keeps stow from collapsing whole
 # directories into a single symlink, which would swallow unrelated sibling
@@ -99,6 +103,7 @@ install_local_llm() {
   fi
 
   command -v stow >/dev/null 2>&1 || { echo "GNU Stow is required." >&2; exit 1; }
+  stow_migrate "${PROJECT_DIR}" "${HOME}" local-llm
   stow "${STOW_FLAGS[@]}" local-llm
 
   # huggingface-hub backs the model downloader; installed via pipx (isolated
@@ -148,6 +153,7 @@ install_turbo_fieldfare() {
     echo "A Swift toolchain (Xcode 26+, Swift 6.2+) is required for TurboFieldfare." >&2
     exit 1
   }
+  stow_migrate "${PROJECT_DIR}" "${HOME}" turbo-fieldfare
   stow "${STOW_FLAGS[@]}" turbo-fieldfare
 
   if [[ -d "${TURBO_FIELDFARE_DIR}/.git" ]]; then

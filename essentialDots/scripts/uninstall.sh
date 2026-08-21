@@ -222,9 +222,15 @@ remove_generated_data() {
   remove_path "${HOME}/.config/zsh/apps/themerc"
   remove_path "${HOME}/.config/.pyenv"
   remove_path "${HOME}/.config/nvm"
+  # The recorded stow roots moved to a shared, repository-wide state
+  # directory when stale-symlink migration became shared by every component.
+  # The old per-component path is still removed so an upgrade leaves nothing
+  # behind.
   remove_path "${XDG_STATE_HOME:-${HOME}/.local/state}/essentialDots/stow-root"
+  remove_path "${XDG_STATE_HOME:-${HOME}/.local/state}/intelliDots/stow-roots"
 
   run rmdir "${XDG_STATE_HOME:-${HOME}/.local/state}/essentialDots" 2>/dev/null || true
+  run rmdir "${XDG_STATE_HOME:-${HOME}/.local/state}/intelliDots" 2>/dev/null || true
 }
 
 read_brewfile_items() {

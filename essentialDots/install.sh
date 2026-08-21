@@ -6,6 +6,10 @@ DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="${DOTFILES_DIR}/scripts"
 # shellcheck source=scripts/lib/progress.sh
 . "${SCRIPTS_DIR}/lib/progress.sh"
+# Stale-symlink migration is shared with every other stow-using component, so
+# a moved checkout is relinked the same way everywhere rather than only here.
+# shellcheck source=scripts/lib/stow-migrate.sh
+. "${SCRIPTS_DIR}/lib/stow-migrate.sh"
 # Reports which numbered stage failed rather than a bare non-zero exit,
 # since this installer runs many stages and the stage number alone
 # localizes the failure without needing -x tracing.
@@ -36,11 +40,6 @@ declare -a STOW_PACKAGES=()
 # directories into a single symlink, which would swallow unrelated sibling
 # files a package doesn't own.
 STOW_FLAGS=(--dir="${DOTFILES_DIR}" --target="${STOW_TARGET}" --verbose --restow --no-folding)
-STOW_STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/essentialDots"
-# Records which checkout path stow last linked from, so a clone that later
-# moves (or is replaced by a fresh clone elsewhere) can still recognize its
-# own previously created links as stale instead of leaving them dangling.
-STOW_ROOT_FILE="${STOW_STATE_DIR}/stow-root"
 
 usage() {
   cat <<'EOF'
@@ -73,7 +72,6 @@ run_pipx=false
 pipx_args=()
 apply_macos_defaults=false
 dry_run=false
-migration_needed=false
 stow_only=false
 
 clone_or_update() {
@@ -89,114 +87,6 @@ clone_or_update() {
     ui_info "Cloning missing dependency: ${target_dir}"
     git clone "${repo_url}" "${target_dir}"
   fi
-}
-
-link_points_to_source() {
-  local target_path="$1"
-  local source_path="$2"
-
-  [[ -e "${target_path}" && "${target_path}" -ef "${source_path}" ]]
-}
-
-# A minimal lexical ../. resolver (no filesystem access, so it also works on
-# dangling symlink targets that realpath/readlink -f can't resolve) used to
-# compare a stale link's target against this checkout's path.
-normalize_path_lexically() {
-  local input="$1"
-  local part
-  local -a input_parts output_parts
-
-  IFS='/' read -r -a input_parts <<< "${input}"
-  for part in "${input_parts[@]}"; do
-    case "${part}" in
-      ''|.) ;;
-      ..)
-        if [[ "${#output_parts[@]}" -gt 0 ]]; then
-          unset 'output_parts[${#output_parts[@]}-1]'
-        fi
-        ;;
-      *) output_parts+=("${part}") ;;
-    esac
-  done
-
-  printf '/'
-  local IFS='/'
-  printf '%s' "${output_parts[*]}"
-}
-
-# A candidate root is "managed" if it matches the root recorded by a
-# previous install (STOW_ROOT_FILE), so links created before a checkout moved
-# are still recognized.
-previous_root_is_managed() {
-  local candidate="$1"
-  local recorded_root=''
-
-  [[ -f "${STOW_ROOT_FILE}" ]] && IFS= read -r recorded_root < "${STOW_ROOT_FILE}"
-
-  [[ -n "${recorded_root}" && "${candidate}" == "${recorded_root}" ]]
-}
-
-# Determines whether an existing symlink was created by a *previous* checkout
-# of this same package (e.g. before the repo moved) rather than by something
-# unrelated, by checking that its target still ends in the expected
-# "<package>/<relative_path>" suffix and that the root before that suffix is
-# a recognized prior checkout. Only such links are safe to remove and replace.
-link_belongs_to_previous_checkout() {
-  local link_target="$1"
-  local package="$2"
-  local relative_path="$3"
-  local target_path="$4"
-  local absolute_target suffix previous_root
-
-  if [[ "${link_target}" = /* ]]; then
-    absolute_target="$(normalize_path_lexically "${link_target}")"
-  else
-    absolute_target="$(normalize_path_lexically "$(dirname "${target_path}")/${link_target}")"
-  fi
-
-  suffix="/${package}/${relative_path}"
-  case "${absolute_target}" in
-    *"${suffix}") previous_root="${absolute_target%"${suffix}"}" ;;
-    *) return 1 ;;
-  esac
-
-  previous_root_is_managed "${previous_root}"
-}
-
-record_stow_root() {
-  mkdir -p "${STOW_STATE_DIR}"
-  if [[ ! -f "${STOW_ROOT_FILE}" || "$(<"${STOW_ROOT_FILE}")" != "${DOTFILES_DIR}" ]]; then
-    printf '%s\n' "${DOTFILES_DIR}" > "${STOW_ROOT_FILE}"
-  fi
-}
-
-# Finds symlinks left behind by a prior checkout of this repo (e.g. it was
-# deleted and re-cloned to a new path) and removes just those, so stow can
-# relink them from the current checkout instead of refusing to touch a path
-# it doesn't recognize as its own.
-migrate_stale_symlinks() {
-  local package source_path relative_path target_path link_target
-
-  for package in "${STOW_PACKAGES[@]}"; do
-    while IFS= read -r -d '' source_path; do
-      relative_path="${source_path#"${DOTFILES_DIR}/${package}/"}"
-      target_path="${STOW_TARGET}/${relative_path}"
-
-      [[ -L "${target_path}" ]] || continue
-      link_points_to_source "${target_path}" "${source_path}" && continue
-
-      link_target="$(readlink "${target_path}")"
-      link_belongs_to_previous_checkout "${link_target}" "${package}" "${relative_path}" "${target_path}" || continue
-
-      if [[ "${dry_run}" == true ]]; then
-        migration_needed=true
-        printf 'Would migrate stale symlink: %s -> %s\n' "${target_path}" "${link_target}"
-      else
-        printf 'Migrating stale symlink: %s -> %s\n' "${target_path}" "${link_target}"
-        rm "${target_path}"
-      fi
-    done < <(find "${DOTFILES_DIR}/${package}" -mindepth 1 -print0)
-  done
 }
 
 # Stow refuses to link over a real file, so an untracked ~/.gitconfig (e.g.
@@ -410,8 +300,8 @@ fi
 if [[ "${dry_run}" == true ]]; then
   ui_init 1 "Dotfiles installation dry run"
   ui_stage "Inspecting managed symlinks"
-  migrate_stale_symlinks
-  if [[ "${migration_needed}" == true ]]; then
+  STOW_MIGRATE_DRY_RUN=true stow_migrate "${DOTFILES_DIR}" "${STOW_TARGET}" "${STOW_PACKAGES[@]}"
+  if [[ "${STOW_MIGRATED_COUNT:-0}" -gt 0 ]]; then
     # Simulating stow while stale links still exist would report them as
     # conflicts rather than as the pending migration they actually are, so
     # skip the simulation and point at the fix instead.
@@ -429,9 +319,8 @@ if [[ "${stow_only}" == true ]]; then
   ui_stage "Migrating and restowing managed symlinks"
   mkdir -p "${STOW_STATE_DIR}"
   backup_existing_gitconfig
-  migrate_stale_symlinks
+  stow_migrate "${DOTFILES_DIR}" "${STOW_TARGET}" "${STOW_PACKAGES[@]}"
   stow "${STOW_FLAGS[@]}" "${STOW_PACKAGES[@]}"
-  record_stow_root
   ui_done "Managed symlinks are current"
   ui_complete "Dotfile symlinks now point to ${DOTFILES_DIR}"
   exit 0
@@ -486,9 +375,8 @@ ui_done "External Git dependencies are ready"
 
 ui_stage "Migrating and restowing managed symlinks"
 backup_existing_gitconfig
-migrate_stale_symlinks
+stow_migrate "${DOTFILES_DIR}" "${STOW_TARGET}" "${STOW_PACKAGES[@]}"
 stow "${STOW_FLAGS[@]}" "${STOW_PACKAGES[@]}"
-record_stow_root
 ui_done "Managed symlinks are current"
 
 if [[ "${run_pipx}" == true ]]; then
