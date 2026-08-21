@@ -58,8 +58,26 @@
 # brew "tokei"     # Source lines of code, per language.
 # brew "hyperfine" # Benchmarks a command over many runs; compares two.
 
+# Hosted AI assistants -- ai-essentials already installs Claude, Claude Code,
+# ChatGPT and OpenCode, so these are a fourth and fifth tool doing that job.
+# cask "antigravity" # Google's AI-powered development environment.
+# brew "gemini-cli"  # Google's Gemini command-line AI assistant.
+
+# Alternate editor -- nvim and VS Code are both in dev-essentials.
+# cask "pycharm-ce" # JetBrains PyCharm Community Edition.
+
+# Domain libraries -- install per project, not per machine.
+# brew "ta-lib" # Technical analysis library for finance/market tooling.
+
 # Python
 # brew "uv" # Fast installer; can pin CPython itself. Potential pyenv replacement.
+#
+# pyenv plugins. zsh/apps/pythonrc calls `pyenv virtualenvwrapper_lazy`, but
+# guards it with `pyenv commands | grep -qx`, so the shell is fine without
+# these -- the feature simply never activates. Install both together; the
+# wrapper plugin is useless without the virtualenv one.
+# brew "pyenv-virtualenv"        # Pyenv plugin for Python virtual environments.
+# brew "pyenv-virtualenvwrapper" # Virtualenvwrapper integration for pyenv.
 
 # Thermals -- appended automatically by install.sh on a Mac that has fans.
 # Listed here so --pick can force it onto a fanless machine for testing.

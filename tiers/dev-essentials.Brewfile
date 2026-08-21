@@ -21,8 +21,6 @@ brew "nvm"    # Node.js version manager loaded by the zsh config.
 
 brew "pipx"                     # Installs Python CLI apps in isolated virtualenvs.
 brew "pyenv"                    # Python version manager for modern runtimes.
-brew "pyenv-virtualenv"         # Pyenv plugin for Python virtual environments.
-brew "pyenv-virtualenvwrapper"  # Virtualenvwrapper integration for pyenv.
 brew "openssl@3" # TLS library used when building Python versions with pyenv.
 brew "readline"  # Command-line editing library used by pyenv-built Python.
 brew "sqlite"    # SQLite support used by pyenv-built Python.
