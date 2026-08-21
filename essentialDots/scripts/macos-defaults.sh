@@ -74,6 +74,7 @@ This will apply your personal macOS UI preferences:
   - Trackpad tap-to-click and gesture preferences.
   - Screenshot save location.
   - Menu bar / Control Center visibility preferences.
+  - Ice update handling left to Homebrew rather than Sparkle.
   - TG Pro monitoring, on a Mac with fans that has TG Pro installed.
 
 EOF
@@ -180,6 +181,24 @@ run defaults write com.apple.controlcenter "NSStatusItem Visible WiFi" -bool tru
 run defaults write com.apple.controlcenter "NSStatusItem Visible Shortcuts" -bool true
 run defaults write com.apple.controlcenter "NSStatusItem Visible ScreenMirroring" -bool false
 run defaults write com.apple.controlcenter "NSStatusItem Visible KeyboardBrightness" -bool false
+
+# Ice: let Homebrew own updates instead of Sparkle.
+#
+# The jordanbaird-ice cask is not marked auto_updates, so `brew upgrade`
+# manages it -- while Ice also updates itself through Sparkle. Two updaters
+# over one app leapfrog each other and produce repeated update prompts, so
+# Sparkle stands down and brew keeps the version. SU* are Sparkle's keys,
+# not Ice's own.
+#
+# Guarded on the app being present: these would otherwise configure an absent
+# app on any profile that leaves out mac-essentials.
+if [[ -d "/Applications/Ice.app" ]]; then
+  ice_domain="com.jordanbaird.Ice"
+  run defaults write "${ice_domain}" SUEnableAutomaticChecks -bool false
+  run defaults write "${ice_domain}" SUAutomaticallyUpdate -bool false
+else
+  echo "Skipping Ice settings: Ice is not installed."
+fi
 
 # TG Pro: monitor the highest CPU temperature while macOS controls the fans.
 # These are documented deployment keys; no license or machine-specific data is stored.
