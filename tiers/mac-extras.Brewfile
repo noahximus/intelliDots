@@ -12,7 +12,4 @@ brew "btop"        # Terminal system monitor for CPU, memory, disk, and processe
 
 cask "basictex"       # Smaller TeX distribution for LaTeX and PDF generation.
 cask "discord"        # Voice, chat, and community messaging app.
-cask "messenger"      # Facebook Messenger. Deliberately not in
-                      # mac-essentials: it was commented out of the old
-                      # Brewfile-essential, i.e. excluded by default.
 cask "microsoft-edge" # Microsoft Edge web browser.

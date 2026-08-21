@@ -38,6 +38,11 @@
 # cask "tableplus" # Database GUI.
 # cask "bruno"     # Local-first API client; requests stored as files in git.
 
+# Messaging -- WhatsApp and Viber are in mac-essentials; this one was
+# commented out of the old Brewfile-essential, so it stays opt-in. Being in
+# mac-extras was not enough, since the full profiles take every tier.
+# cask "messenger" # Facebook Messenger desktop app.
+
 # Work communication -- which one depends on the employer, not the machine.
 # cask "slack" # Team chat and messaging.
 # cask "zoom"  # Video meetings.
