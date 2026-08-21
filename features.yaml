@@ -73,7 +73,7 @@ nodes:
     path: toolsDots/aiTools/aiApps
 
   - id: toolsDots.aiTools.localLLM
-    tier: ai-extras
+    tier: ai-local
     path: toolsDots/aiTools/localLLM
     options:
       # llama.cpp-based local model runtime. On by default when this node

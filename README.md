@@ -8,7 +8,7 @@ required.
 
 ```
 intelliDots/
-  profiles/                # what to install: air, daily, everything
+  profiles/                # what to install: air, air-plus, daily, everything, pro
   tiers/                   # what each tier contains, as Brewfiles
   features.yaml            # node registry: tier + path + options per node
   install.sh  uninstall.sh  status.sh  sync.sh  bootstrap.sh  ship.sh
@@ -21,7 +21,7 @@ intelliDots/
       tmux/                # tmux, its config, and the tpm plugin manager
       superfile/           # Superfile terminal file manager and themes
     aiTools/
-      aiApps/              # ChatGPT, Claude, Claude Code (+ Gemini CLI, Antigravity)
+      aiApps/              # ChatGPT, Claude, Claude Code desktop apps
       localLLM/            # llama.cpp runtime, models, wrapper
       opencode/            # OpenCode and optional local-model bridge
 ```
@@ -50,16 +50,24 @@ of machine:
 
 | Profile | Tiers | Nodes | Packages |
 | --- | --- | --- | --- |
-| `air` | core, mac-essentials, ai-essentials | 3 | 33 |
-| `air-plus` | air, plus iTerm2 on its own | 4 | 34 |
-| `daily` (default) | adds dev-essentials | 7 | 55 |
-| `everything` | every tier but optional | 9 | 85 |
+| `air` | core, mac-essentials, ai-essentials | 3 | 32 |
+| `air-plus` | air, plus iTerm2 on its own | 4 | 33 |
+| `daily` (default) | adds dev-essentials | 7 | 54 |
+| `everything` | every tier but optional | 9 | 74 |
+| `pro` | everything, plus this workstation's container runtime | 9 | 75 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.
 `air-plus` is the same machine with iTerm2 borrowed out of dev-essentials,
 since a terminal emulator is not really a development tool and Terminal.app
 means setting the MesloLGS NF font by hand.
+
+`everything` and `pro` differ in what they are statements about:
+`everything` means "every tier", a fact about this repository, and is the
+right thing to test against; `pro` means "the MacBook Pro", a fact about one
+machine, and is where a per-machine choice like Docker Desktop over OrbStack
+gets recorded. Add machines as their own profiles rather than bending a tier
+to fit one of them.
 
 ### One-file fresh-Mac bootstrap
 
@@ -80,9 +88,10 @@ chmod +x "$HOME/Downloads/bootstrap.sh"
 
 ## Tiers and profiles
 
-A **tier** is a set of packages and the nodes that go with them. There are
-seven, on two axes -- domain (`mac`, `dev`, `ai`) and depth (`essentials`,
-`extras`) -- plus `core`, which every profile installs:
+A **tier** is a set of packages and the nodes that go with them. Most sit on
+two axes -- domain (`mac`, `dev`, `ai`) and depth (`essentials`, `extras`) --
+alongside `core`, which every profile installs, and `ai-local`, which is a
+separate concern rather than a depth:
 
 | Tier | Holds |
 | --- | --- |
@@ -92,7 +101,32 @@ seven, on two axes -- domain (`mac`, `dev`, `ai`) and depth (`essentials`,
 | `dev-essentials` | Editors, terminals, Git tooling, Python and Node toolchains |
 | `dev-extras` | Database and API clients, CLI analysis tools |
 | `ai-essentials` | Claude, Claude Code, ChatGPT, OpenCode |
-| `ai-extras` | Local model runtimes, Gemini CLI, Antigravity |
+| `ai-extras` | Assistants that call hosted models: Gemini CLI, Aider, Antigravity |
+| `ai-local` | Running models on this machine: llama.cpp and the localLLM node |
+
+`ai-local` is split from `ai-extras` because it is a different commitment.
+Its node stows the `local-llm` wrapper, writes two (disabled) LaunchAgents,
+and enables the CodeCompanion Neovim integration -- none of which has
+anything to do with Gemini or Aider, and there are machines that want one and
+not the other:
+
+```yaml
+# local models, no third-party cloud agents
+tiers: [core, mac-essentials, dev-essentials, ai-essentials, ai-local]
+
+# cloud assistants only -- no runtimes, no background LaunchAgents
+tiers: [core, mac-essentials, dev-essentials, ai-essentials, ai-extras]
+```
+
+Only `llama.cpp` is in `ai-local`; it is the runtime the wrapper and the
+Neovim integration actually use. `ollama-app` and `lm-studio` duplicate it
+without being wired to anything here, so they sit in `optional` --
+`./install.sh --pick ollama-app`.
+
+`ai-local` has a soft dependency on `dev-essentials`: its model downloader is
+`huggingface-hub`, installed through pipx, and pipx is a dev-essentials
+formula. Taking `ai-local` without it still gives a working runtime, but no
+`hf` for gated downloads. The node says so rather than skipping quietly.
 
 Each tier is a Brewfile in `tiers/`. A **profile** in `profiles/` is just a
 list of the tiers it wants:

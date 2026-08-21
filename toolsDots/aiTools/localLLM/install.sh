@@ -104,9 +104,20 @@ install_local_llm() {
   # huggingface-hub backs the model downloader; installed via pipx (isolated
   # venv) rather than the Brewfile since it's a Python CLI tool, not a
   # Homebrew formula.
-  if [[ "${run_pipx}" == true ]] && command -v pipx >/dev/null 2>&1; then
-    if ! pipx list --short 2>/dev/null | grep -qx huggingface-hub; then
-      pipx install huggingface-hub
+  if [[ "${run_pipx}" == true ]]; then
+    if command -v pipx >/dev/null 2>&1; then
+      if ! pipx list --short 2>/dev/null | grep -qx huggingface-hub; then
+        pipx install huggingface-hub
+      fi
+    else
+      # pipx is a dev-essentials formula, so a profile that takes ai-local
+      # without dev-essentials lands here. The runtime still works; only
+      # authenticated and gated model downloads are unavailable. Worth saying
+      # out loud -- skipping quietly is the kind of gap you rediscover months
+      # later, wondering why `hf` is missing.
+      echo "Note: pipx not found, so huggingface-hub was not installed." >&2
+      echo "      local-llm works, but 'hf' for gated model downloads is missing." >&2
+      echo "      Install pipx (it ships with the dev-essentials tier) and rerun." >&2
     fi
   fi
 
