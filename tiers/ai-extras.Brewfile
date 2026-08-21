@@ -1,15 +1,20 @@
-# ai-extras: additional assistants and agents beyond the ai-essentials set.
-# These call hosted models; running models locally is ai-local.
+# ai-extras: additional AI tooling that is not wired into anything here.
 #
-# Currently empty. Gemini CLI, Antigravity, and Aider all moved to
-# optional.Brewfile: ai-essentials already installs Claude, Claude Code,
-# ChatGPT, and OpenCode, so each of those was a fourth or fifth tool doing a
-# job two existing ones already do.
+# The distinction against ai-local is integration, not where the model runs.
+# ai-local is the stack this repository actually builds on: llama.cpp, the
+# local-llm wrapper, its two LaunchAgents, and the CodeCompanion Neovim
+# integration that points at it. Anything in ai-extras stands alone -- useful
+# on its own terms, but nothing in these dotfiles depends on it and nothing
+# breaks when it is absent.
 #
-# The tier is kept rather than deleted so the profiles listing it keep
-# working, and so there is an obvious home for the next hosted assistant that
-# earns its way in.
-#
-# TurboFieldfare is not here either -- it stays behind localLLM's own
+# TurboFieldfare is not here -- it stays behind localLLM's own
 # --with-turbo-fieldfare option, since it needs macOS 26, Xcode 26, Apple
 # Silicon, and roughly 14GB of model weights.
+#
+# Gemini CLI, Antigravity, and Aider went to optional.Brewfile: ai-essentials
+# already installs Claude, Claude Code, ChatGPT and OpenCode, so each of those
+# was a fourth or fifth tool doing a job two existing ones already do.
+
+cask "lm-studio" # Model browser, chat UI, and OpenAI-compatible local server.
+                 # Its value over llama.cpp is the browser: it sizes GGUF
+                 # quantizations against available RAM before downloading.

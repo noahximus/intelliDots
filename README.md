@@ -53,8 +53,8 @@ of machine:
 | `air` | core, mac-essentials, ai-essentials | 3 | 32 |
 | `air-plus` | air, plus iTerm2 on its own | 4 | 33 |
 | `daily` (default) | adds dev-essentials | 7 | 52 |
-| `everything` | every tier but optional | 9 | 67 |
-| `pro` | everything, plus this workstation's container runtime | 9 | 68 |
+| `everything` | every tier but optional | 9 | 68 |
+| `pro` | everything, plus this workstation's container runtime | 9 | 69 |
 
 `air` is for a Mac you do not write code on: the desktop, the applications,
 and the AI assistants, with no language runtimes, editors, or build tooling.
@@ -101,27 +101,28 @@ separate concern rather than a depth:
 | `dev-essentials` | Editors, terminals, Git tooling, Python and Node toolchains |
 | `dev-extras` | Database and API clients, CLI analysis tools |
 | `ai-essentials` | Claude, Claude Code, ChatGPT, OpenCode |
-| `ai-extras` | Assistants that call hosted models: Gemini CLI, Aider, Antigravity |
-| `ai-local` | Running models on this machine: llama.cpp and the localLLM node |
+| `ai-extras` | Standalone AI tooling nothing here depends on: LM Studio |
+| `ai-local` | The integrated local stack: llama.cpp and the localLLM node |
 
-`ai-local` is split from `ai-extras` because it is a different commitment.
-Its node stows the `local-llm` wrapper, writes two (disabled) LaunchAgents,
-and enables the CodeCompanion Neovim integration -- none of which has
-anything to do with Gemini or Aider, and there are machines that want one and
-not the other:
+`ai-local` and `ai-extras` are split on integration, not on where the model
+runs. `ai-local` is the stack this repository builds on: `llama.cpp`, plus a
+node that stows the `local-llm` wrapper, writes two (disabled) LaunchAgents,
+and enables the CodeCompanion Neovim integration pointed at it. Taking that
+tier is a commitment to a running service. `ai-extras` is AI tooling that
+stands alone -- useful on its own terms, but nothing here depends on it and
+nothing breaks when it is absent.
 
 ```yaml
-# local models, no third-party cloud agents
+# the integrated local stack, no standalone extras
 tiers: [core, mac-essentials, dev-essentials, ai-essentials, ai-local]
 
-# cloud assistants only -- no runtimes, no background LaunchAgents
+# standalone tooling only -- no wrapper, no LaunchAgents
 tiers: [core, mac-essentials, dev-essentials, ai-essentials, ai-extras]
 ```
 
-Only `llama.cpp` is in `ai-local`; it is the runtime the wrapper and the
-Neovim integration actually use. `ollama-app` and `lm-studio` duplicate it
-without being wired to anything here, so they sit in `optional` --
-`./install.sh --pick ollama-app`.
+Only `llama.cpp` is in `ai-local`, because only `llama.cpp` is wired in.
+`ollama-app` overlaps it and runs a background daemon besides, so it is
+catalogued in `optional` -- `./install.sh --pick ollama-app`.
 
 `ai-local` has a soft dependency on `dev-essentials`: its model downloader is
 `huggingface-hub`, installed through pipx, and pipx is a dev-essentials

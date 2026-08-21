@@ -7,9 +7,10 @@
 # None of that has anything to do with the cloud assistants in ai-extras, and
 # there are machines that want one and not the other.
 #
-# Only llama.cpp is here. ollama-app and lm-studio are alternative runtimes
-# that duplicate it without being wired into anything in this repository, so
-# they live in optional.Brewfile: ./install.sh --pick ollama-app
+# Only llama.cpp is here, because only llama.cpp is wired in. The other
+# runtimes stand alone: lm-studio is in ai-extras, and ollama-app -- which
+# overlaps both of them and runs a background daemon besides -- is catalogued
+# in optional.Brewfile: ./install.sh --pick ollama-app
 #
 # Soft dependency on dev-essentials: the model downloader is huggingface-hub,
 # installed through pipx, and pipx is a dev-essentials formula. Selecting
