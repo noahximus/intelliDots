@@ -9,7 +9,7 @@ alias sfr='. ${ZDOTDIR}/.zshrc'
 
 alias drun='docker run --rm -it -v "${PWD}":/app -w /app'
 alias rmpyc="find . -type d -name '__pycache__' -exec rm -rf {} \;"
-alias ymp3="youtube-dl --extract-audio --audio-format mp3"
+alias ymp3="yt-dlp --extract-audio --audio-format mp3"
 alias diff="diff --color -u"
 alias 755d="find . -type d -exec chmod 755 {} \;"
 alias 644f="find . -type f -exec chmod 644 {} \;"
@@ -59,15 +59,15 @@ alias dt="cd ~/Desktop"
 # alias edit='subl'                         # edit:         Opens any file in sublime editor
 alias f='open -a Finder ./'               # f:            Opens current directory in MacOS Finder
 alias c='clear'                           # c:            Clear terminal display
-alias which='type -all'                   # which:        Find executables
+alias which='type -a'                     # which:        Find executables
 alias path='echo -e ${PATH//:/\\n}'       # path:         Echo all executable Paths
-alias show_options='shopt'                # Show_options: display bash options settings
+alias show_options='setopt'               # show_options: display zsh options settings
 alias fix_stty='stty sane'                # fix_stty:     Restore terminal settings when screwed up
-alias cic='set completion-ignore-case On' # cic:          Make tab-completion case-insensitive
+alias cic="zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'" # cic: Make tab-completion case-insensitive
 alias DT='tee ~/Desktop/terminalOut.txt'  # DT:           Pipe content to file on MacOS Desktop
 
 #   lr:  Full Recursive Directory Listing
-alias lr='ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\'' -e '\''s/^/   /'\'' -e '\''s/-/|/'\'' | less'
+alias lr='command ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\'' -e '\''s/^/   /'\'' -e '\''s/-/|/'\'' | less'
 
 # List all files colorized in long format
 # alias l="ls -lF ${colorflag}"
@@ -89,9 +89,9 @@ alias egrep='egrep --color=auto'
 
 if command -v brew >/dev/null 2>&1; then
   # alias ls="ls -G"
-  alias grep="grep -G"
-  alias fgrep="fgrep -G"
-  alias egrep="egrep -G"
+  alias grep="grep --color=auto"
+  alias fgrep="fgrep --color=auto"
+  alias egrep="egrep --color=auto"
 else
   # alias ls="ls --color=auto"
   alias grep="grep --color=auto"
@@ -122,10 +122,10 @@ alias lsockT='sudo /usr/sbin/lsof -nP | grep TCP' # lsockT:       Display only o
 alias ipInfo0='ipconfig getpacket en0'            # ipInfo0:      Get info on connections for en0
 alias ipInfo1='ipconfig getpacket en1'            # ipInfo1:      Get info on connections for en1
 alias openPorts='sudo lsof -i | grep LISTEN'      # openPorts:    All listening connections
-alias showBlocked='sudo ipfw list'                # showBlocked:  All ipfw rules inc/ blocked IPs
+alias showBlocked='sudo pfctl -sr'                 # showBlocked:  All pf firewall rules
 
 # Show active network interfaces
-alias ifactive="ifconfig | pcregrep -M -o '^[^\t:]+:([^\n]|\n\t)*status: active'"
+alias ifactive="ifconfig | awk -F: '/^[a-z0-9]+:/{iface=\$1} /status: active/{print iface}'"
 
 # Flush Directory Service cache
 alias flush="dscacheutil -flushcache && killall -HUP mDNSResponder"
@@ -150,8 +150,6 @@ alias brewery='brew update && brew upgrade && brew cleanup'
 # Reload the shell (i.e. invoke as a login shell)
 # alias reload="exec ${SHELL} -l" (Conflicted with function in .functions)
 
-# Print each PATH entry on a separate line
-alias path='echo -e ${PATH//:/\\n}'
 
 # Kill all the tabs in Chrome to free up memory
 # [C] explained: http://www.commandlinefu.com/commands/view/402/exclude-grep-from-your-grepped-output-of-ps-alias-included-in-description
@@ -164,8 +162,6 @@ alias cdMyDotFiles='cd "$(dotfiles-root)"'
 alias nvimConfig="cdConfig; nvim"
 
 alias nvimAliases="cdMyDotFiles; nvim zsh/.config/zsh/.aliases"
-alias nvimSKHD="cdMyDotFiles; nvim skhd/.config/skhd/skhdrc"
-alias nvimYabai="cdMyDotFiles; nvim yabai/.config/yabai/yabairc"
 alias nvimAerospace="cdMyDotFiles; nvim aerospace/.config/aerospace/aerospace.toml"
 
 # alias cdMyzed="cd ~/Developer/00repo/myzed"
