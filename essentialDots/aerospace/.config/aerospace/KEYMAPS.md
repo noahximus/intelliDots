@@ -13,6 +13,7 @@ The main modifier is `alt`.
 | Key | Action |
 | --- | --- |
 | `alt-enter` | Open Terminal |
+| `alt-cmd-m` | Open/focus Messenger |
 
 ## Layout
 
@@ -128,6 +129,7 @@ alt-shift-semicolon
 | Mail | `M` |
 | Messages | `M` |
 | Messenger | `M` |
+| WhatsApp | `M` |
 | System Settings | `S` |
 | Python apps | `P` |
 | ChatGPT | `N` |
