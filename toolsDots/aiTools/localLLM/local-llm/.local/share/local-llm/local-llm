@@ -41,6 +41,13 @@ fi
 : "${LOCAL_LLM_BATCH_SIZE:=512}"
 : "${LOCAL_LLM_UBATCH_SIZE:=128}"
 : "${LOCAL_LLM_N_GPU_LAYERS:=99}"
+# KV cache precision. f16 is llama.cpp's own default, so leaving these unset
+# changes nothing. q8_0 roughly halves the cache: on Qwen3-8B (36 layers, 8 KV
+# heads, 128 head dim) that is 144 KiB/token down to ~78 KiB, or 2.25 GB down
+# to ~1.23 GB at a 16384 context -- worth about a gigabyte of RAM on a 16 GB
+# machine for a quality difference that does not show up in practice.
+: "${LOCAL_LLM_CACHE_TYPE_K:=f16}"
+: "${LOCAL_LLM_CACHE_TYPE_V:=f16}"
 : "${LOCAL_LLM_WRAPPER_REPAIR_ATTEMPTS:=2}"
 : "${LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA:=1}"
 : "${LOCAL_LLM_WRAPPER_DISABLE_THINKING:=1}"
@@ -331,6 +338,8 @@ start_backend() {
     --batch-size "$LOCAL_LLM_BATCH_SIZE" \
     --ubatch-size "$LOCAL_LLM_UBATCH_SIZE" \
     --n-gpu-layers "$LOCAL_LLM_N_GPU_LAYERS" \
+    --cache-type-k "$LOCAL_LLM_CACHE_TYPE_K" \
+    --cache-type-v "$LOCAL_LLM_CACHE_TYPE_V" \
     --jinja \
     >"$BACKEND_LOG" 2>&1 &
   echo "$!" >"$BACKEND_PID_FILE"
@@ -833,6 +842,8 @@ case "${1:-}" in
       --batch-size "$LOCAL_LLM_BATCH_SIZE" \
       --ubatch-size "$LOCAL_LLM_UBATCH_SIZE" \
       --n-gpu-layers "$LOCAL_LLM_N_GPU_LAYERS" \
+      --cache-type-k "$LOCAL_LLM_CACHE_TYPE_K" \
+      --cache-type-v "$LOCAL_LLM_CACHE_TYPE_V" \
       --jinja
     ;;
   _serve-wrapper)
