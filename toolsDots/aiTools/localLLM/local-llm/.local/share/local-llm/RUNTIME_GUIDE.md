@@ -16,6 +16,7 @@ The stack is installed by `localLLM` at:
 
 ```text
 ~/.local/bin/local-llm
+~/.local/bin/local-llm-embed
 ~/.local/share/local-llm/
 ~/.config/local-llm/stack.env
 ```
@@ -27,7 +28,8 @@ Default ports:
 ```text
 llama-server backend: http://127.0.0.1:8081
 wrapper endpoint:     http://127.0.0.1:8090
-model alias:          local-llm
+embedding server:     http://127.0.0.1:8082   (local-llm-embed, see below)
+model alias:          local-llm  (embedding server: local-embed)
 models directory:     ~/Models
 ```
 
@@ -223,6 +225,49 @@ Use the model name:
 local-llm
 ```
 
+## Embeddings
+
+`local-llm-embed` runs a second `llama-server` dedicated to embeddings. It
+is a separate process with its own port (8082), PID file, LaunchAgent
+(`local.local-llm.embed`), log (`~/Library/Logs/local-llm/embed-server.log`),
+and selected-model state (`~/.config/local-llm/selected-embed-model`). None
+of the `local-llm` commands touch it, and it does not care which chat
+provider (llama or TurboFieldfare) is active.
+
+```sh
+local-llm-embed start
+local-llm-embed status
+local-llm-embed embed "The quick brown fox"
+local-llm-embed embed --raw "The quick brown fox" > vector.json
+local-llm-embed model list
+local-llm-embed model use baai/embedding/bge-m3-Q8_0
+local-llm-embed stop
+```
+
+`local-llm embed ...` is a passthrough to the same script.
+
+`model list` shows GGUFs stored under any `*/embedding/` folder, matching
+how the catalog lays models out. To use an embedding model stored somewhere
+else, pass its full model ID or path to `model use`.
+
+The default model is `bge-m3` (`download-local-models bge-m3`): 1024
+dimensions, 8192-token context, CLS pooling, multilingual. Any OpenAI-style
+client works against the endpoint:
+
+```sh
+curl -s http://127.0.0.1:8082/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "local-embed", "input": ["first text", "second text"]}'
+```
+
+Two settings differ from the chat backend on purpose. First, the batch and
+ubatch sizes default to the context size: embedding models use non-causal
+attention, so llama.cpp must see a whole input in one physical batch and
+rejects anything longer than the ubatch with "input is too large to
+process". Second, pooling defaults to whatever the GGUF records (bge-m3
+says CLS; most sentence-transformer conversions say mean). Only set
+`LOCAL_LLM_EMBED_POOLING` to override a GGUF that recorded the wrong type.
+
 ## Configuration
 
 Edit:
@@ -241,10 +286,18 @@ LOCAL_LLM_BACKEND_PORT="8081"
 LOCAL_LLM_WRAPPER_PORT="8090"
 LOCAL_LLM_CTX_SIZE="16384"
 LOCAL_LLM_N_GPU_LAYERS="99"
+
+LOCAL_LLM_EMBED_MODEL="baai/embedding/bge-m3-Q8_0"
+LOCAL_LLM_EMBED_MODEL_ALIAS="local-embed"
+LOCAL_LLM_EMBED_PORT="8082"
+LOCAL_LLM_EMBED_CTX_SIZE="8192"
+LOCAL_LLM_EMBED_THREADS="4"
+LOCAL_LLM_EMBED_POOLING=""
 ```
 
 After changing config, restart:
 
 ```sh
 local-llm restart
+local-llm-embed restart
 ```

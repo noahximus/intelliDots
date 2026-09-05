@@ -87,6 +87,14 @@
       "legacy_link": "google/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
       "purpose": "Gemma 4 26B-A4B (Unsloth dynamic quant) via llama.cpp -- the same base model TurboFieldfare runs, in a llama.cpp-compatible GGUF.",
       "aliases": ["gemma4", "gemma-4-a4b", "gemma4-26b"]
+    },
+    "bge-m3": {
+      "repo": "gpustack/bge-m3-GGUF",
+      "file": "bge-m3-Q8_0.gguf",
+      "dest": "baai/embedding/bge-m3-Q8_0.gguf",
+      "legacy_link": "baai/embedding/bge-m3-Q8_0.gguf",
+      "purpose": "Multilingual text embeddings (1024-dim, 8192 ctx) for local-llm-embed; not a chat model.",
+      "aliases": ["bge", "bgem3", "bge-m3-q8"]
     }
   }
 }

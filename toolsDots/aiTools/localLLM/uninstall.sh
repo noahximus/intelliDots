@@ -22,7 +22,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 domain="gui/$(id -u)"
-for label in local.local-llm.wrapper local.local-llm.backend; do
+for label in local.local-llm.embed local.local-llm.wrapper local.local-llm.backend; do
   if [[ "${dry_run}" == true ]]; then
     echo "Would unload ${domain}/${label} and remove its LaunchAgent"
   else

@@ -67,10 +67,12 @@ if [[ "${with_local_llm}" == false && "${with_turbo_fieldfare}" == false ]]; the
 fi
 
 # Writes a disabled (RunAtLoad=false) LaunchAgent so `local-llm start`/`stop`
-# can drive llama-server and the wrapper as managed services without a
-# terminal window staying open, while never auto-starting them at login.
+# (and `local-llm-embed start`/`stop`) can drive llama-server, the wrapper,
+# and the embedding server as managed services without a terminal window
+# staying open, while never auto-starting them at login. `program` is the
+# CLI under ~/.local/bin that launchd invokes; `command` its serve subcommand.
 write_agent() {
-  local label="$1" command="$2" log_file="$3"
+  local label="$1" program="$2" command="$3" log_file="$4"
   local destination="${HOME}/Library/LaunchAgents/${label}.plist"
   # LaunchAgents run with a minimal environment, so PATH must be set
   # explicitly rather than inherited from the interactive shell.
@@ -81,7 +83,7 @@ write_agent() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${label}</string>
-<key>ProgramArguments</key><array><string>${HOME}/.local/bin/local-llm</string><string>${command}</string></array>
+<key>ProgramArguments</key><array><string>${HOME}/.local/bin/${program}</string><string>${command}</string></array>
 <key>EnvironmentVariables</key><dict><key>HOME</key><string>${HOME}</string><key>PATH</key><string>${path_value}</string></dict>
 <key>ProcessType</key><string>Interactive</string><key>RunAtLoad</key><false/>
 <key>StandardOutPath</key><string>${HOME}/Library/Logs/local-llm/${log_file}</string>
@@ -93,7 +95,7 @@ EOF
 install_local_llm() {
   if [[ "${dry_run}" == true ]]; then
     stow "${STOW_FLAGS[@]}" --simulate local-llm || true
-    echo "Would initialize runtime directories and write two LaunchAgents"
+    echo "Would initialize runtime directories and write three LaunchAgents"
     return 0
   fi
 
@@ -127,9 +129,10 @@ install_local_llm() {
   fi
 
   mkdir -p "${HOME}/Models" "${HOME}/Library/Application Support/local-llm" "${HOME}/Library/Logs/local-llm"
-  write_agent "local.local-llm.backend" "_serve-backend" "llama-server.log"
-  write_agent "local.local-llm.wrapper" "_serve-wrapper" "wrapper.log"
-  echo "local-llm installed. Run: local-llm doctor"
+  write_agent "local.local-llm.backend" "local-llm" "_serve-backend" "llama-server.log"
+  write_agent "local.local-llm.wrapper" "local-llm" "_serve-wrapper" "wrapper.log"
+  write_agent "local.local-llm.embed" "local-llm-embed" "_serve" "embed-server.log"
+  echo "local-llm installed. Run: local-llm doctor && local-llm-embed doctor"
 }
 
 # Clones (or fast-forward updates) the upstream TurboFieldfare repository and

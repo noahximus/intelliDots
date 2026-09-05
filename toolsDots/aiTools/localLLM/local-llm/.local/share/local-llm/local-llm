@@ -652,15 +652,17 @@ model_list() {
 }
 
 usage() {
-  echo "Usage: local-llm {start|stop|restart|status|doctor|endpoint|logs|ask QUESTION|chat [--new|--continue]|provider {status|use {llama|turbo}}|wrapper {on|off|toggle|status}|model {list [--porcelain]|status|use MODEL}}" >&2
+  echo "Usage: local-llm {start|stop|restart|status|doctor|endpoint|logs|ask QUESTION|chat [--new|--continue]|embed ...|provider {status|use {llama|turbo}}|wrapper {on|off|toggle|status}|model {list [--porcelain]|status|use MODEL}}" >&2
+  echo "       local-llm embed ... forwards to local-llm-embed (the embedding server has its own lifecycle)" >&2
 }
 
 # When the active provider is turbo, every command except "provider" itself
 # (and the launchd-invoked internals) either delegates to turbo-fieldfare or
 # refuses clearly -- it never falls through to the llama-specific logic
-# below.
+# below. "embed" is exempt too: the embedding server is always llama-server
+# and runs independently of whichever chat provider is active.
 case "${1:-}" in
-  provider | _serve-backend | _serve-wrapper) ;;
+  provider | embed | _serve-backend | _serve-wrapper) ;;
   *)
     if [ "$(active_provider)" = "turbo" ]; then
       require_turbo_fieldfare || exit 1
@@ -718,6 +720,10 @@ case "${1:-}" in
     ;;
   ask) shift; ask "$@" ;;
   chat) shift; chat "$@" ;;
+  # Pure passthrough for discoverability. The embedding server is managed by
+  # its own script so that `local-llm stop`, `model use`, and `provider use`
+  # never touch it; see the header comment in local-llm-embed.
+  embed) shift; exec "$INSTALL_ROOT/local-llm-embed" "$@" ;;
   provider)
     case "${2:-status}" in
       status) active_provider ;;

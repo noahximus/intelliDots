@@ -7,6 +7,10 @@ intelliDots component.
 - **local-llm** — manages GGUF models through `llama.cpp`, exposes an
   OpenAI-compatible endpoint, and optionally repairs tool calls through a
   Python proxy.
+- **local-llm-embed** — runs a second, dedicated `llama-server` for text
+  embeddings (`/v1/embeddings`) on its own port, so it can stay up while
+  the chat backend is stopped, restarted, or switched. Installed together
+  with `local-llm`.
 - **TurboFieldfare** — a Swift/Metal runtime that runs Gemma 4 26B-A4B in
   about 2GB of RAM (see [drumih/turbo-fieldfare](https://github.com/drumih/turbo-fieldfare)),
   wrapped with a `local-llm`-style CLI. Requires macOS 26, Xcode 26, and an
@@ -38,7 +42,7 @@ Both backends are opt-in and may be combined:
 `--with-local-llm` installs the essential `Brewfile-essential` set by default
 (GNU Stow, pipx, `llama.cpp`); add `--full` to also install the Ollama desktop
 app. It Stows the stack, installs the Hugging Face CLI with pipx, creates
-`~/Models`, and writes backend and wrapper LaunchAgents.
+`~/Models`, and writes backend, wrapper, and embedding-server LaunchAgents.
 
 `--with-turbo-fieldfare` verifies a Swift toolchain is present, clones (or
 fast-forward updates) `https://github.com/drumih/turbo-fieldfare.git` into
@@ -72,6 +76,35 @@ local-llm endpoint
 Configuration lives in `~/.config/local-llm`. Runtime state and logs are
 under `~/Library/Application Support/local-llm` and
 `~/Library/Logs/local-llm`. Models default to `~/Models`.
+
+## Embeddings
+
+`local-llm-embed` manages a separate `llama-server` started with
+`--embedding`, so it only answers `/v1/embeddings` and never competes with
+the chat backend for a port. It defaults to `bge-m3` (1024 dimensions, 8192
+context, multilingual) on `127.0.0.1:8082`; the chat backend stays on 8081
+and the tool wrapper on 8090, so all three can run at the same time.
+
+```bash
+download-local-models bge-m3          # once; ~600MB
+local-llm-embed doctor
+local-llm-embed start
+local-llm-embed status
+local-llm-embed embed "some text"     # smoke test: prints dimensions and the first values
+local-llm-embed embed --raw "text"    # the full vector as a JSON array
+local-llm-embed endpoint              # http://127.0.0.1:8082
+local-llm-embed model list            # GGUFs under any */embedding/ folder
+local-llm-embed model use MODEL
+local-llm-embed stop
+```
+
+`local-llm embed ...` forwards to the same script, so either spelling
+works. The lifecycles are deliberately independent: `local-llm stop`,
+`local-llm model use`, and `local-llm provider use` never touch the
+embedding server, and `local-llm-embed stop` never touches the chat backend.
+Settings live in the same `stack.env` under `LOCAL_LLM_EMBED_*`; see
+`RUNTIME_GUIDE.md` for the details, including why the batch sizes track the
+context size.
 
 The model catalog `download-local-models` reads from is a single JSON file:
 

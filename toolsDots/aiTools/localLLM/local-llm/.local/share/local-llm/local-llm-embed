@@ -1,0 +1,534 @@
+#!/bin/sh
+
+# Manages a dedicated llama-server instance for text embeddings, alongside
+# (not instead of) the chat backend that `local-llm` runs. A sibling CLI
+# rather than a `local-llm` subcommand on purpose: the chat script is built
+# around "one backend at a time" -- `stop` tears everything down, `model use`
+# restarts everything, and under the turbo provider every command is handed
+# to turbo-fieldfare -- while the embedding server has to stay up across all
+# of that. Own port, own PID file, own LaunchAgent; the helpers below are
+# copied from local-llm instead of shared, the same way turbo-fieldfare does
+# it, so neither script can break the other.
+
+set -eu
+
+CONFIG_FILE="${LOCAL_LLM_CONFIG:-$HOME/.config/local-llm/stack.env}"
+CONFIG_DIR=$(dirname "$CONFIG_FILE")
+MODEL_STATE_FILE="${LOCAL_LLM_EMBED_MODEL_STATE_FILE:-$CONFIG_DIR/selected-embed-model}"
+DATA_DIR="${LOCAL_LLM_DATA_DIR:-$HOME/Library/Application Support/local-llm}"
+LOG_DIR="${LOCAL_LLM_LOG_DIR:-$HOME/Library/Logs/local-llm}"
+PID_FILE="$DATA_DIR/embed-server.pid"
+LOG_FILE="$LOG_DIR/embed-server.log"
+LABEL="local.local-llm.embed"
+LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
+PLIST="$LAUNCH_AGENT_DIR/$LABEL.plist"
+
+if [ -f "$CONFIG_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$CONFIG_FILE"
+fi
+
+: "${LOCAL_LLM_MODELS_DIR:=$HOME/Models}"
+: "${LOCAL_LLM_EMBED_MODEL:=baai/embedding/bge-m3-Q8_0}"
+: "${LOCAL_LLM_EMBED_MODEL_ALIAS:=local-embed}"
+: "${LOCAL_LLM_EMBED_HOST:=127.0.0.1}"
+# 8081 is the chat backend (shared with TurboFieldfare), 8090 the tool-call
+# wrapper. 8082 keeps the embedding server clear of both so all three can
+# run at once.
+: "${LOCAL_LLM_EMBED_PORT:=8082}"
+# bge-m3's maximum. Inputs longer than this are truncated by llama-server.
+: "${LOCAL_LLM_EMBED_CTX_SIZE:=8192}"
+# Lower than the chat backend's 8 on purpose: with every layer on the GPU the
+# encoder barely touches the CPU, and this leaves headroom for the chat
+# backend that is usually running next to it.
+: "${LOCAL_LLM_EMBED_THREADS:=4}"
+: "${LOCAL_LLM_EMBED_PARALLEL:=1}"
+# Embedding models use non-causal attention, so llama.cpp has to see a whole
+# input in one physical batch: any request longer than the ubatch fails with
+# "input is too large to process". Pinning both batch sizes to the context
+# size makes every input that fits the context also fit the batch. For a
+# 24-layer, 1024-wide encoder the compute buffer this needs is a few hundred
+# MB, so there is no reason to shrink it.
+: "${LOCAL_LLM_EMBED_BATCH_SIZE:=$LOCAL_LLM_EMBED_CTX_SIZE}"
+: "${LOCAL_LLM_EMBED_UBATCH_SIZE:=$LOCAL_LLM_EMBED_CTX_SIZE}"
+: "${LOCAL_LLM_EMBED_N_GPU_LAYERS:=99}"
+# Empty means "use whatever the GGUF says" (bge-m3 records CLS pooling; nomic
+# and most sentence-transformer conversions record mean). Only set this to
+# override a GGUF that recorded the wrong type or none at all: one of
+# none, mean, cls, last, rank.
+: "${LOCAL_LLM_EMBED_POOLING:=}"
+
+server_url="http://$LOCAL_LLM_EMBED_HOST:$LOCAL_LLM_EMBED_PORT"
+
+mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+
+model_id_from_path() {
+  path=$1
+  id=${path#"$LOCAL_LLM_MODELS_DIR"/}
+  printf '%s\n' "${id%.gguf}"
+}
+
+model_label_from_id() {
+  basename "$1"
+}
+
+# Only GGUFs stored under an "embedding" purpose folder, following the
+# catalog's layout (qwen/coding, qwen/general, baai/embedding, ...). An
+# embedding model kept anywhere else still works: `model use` accepts a full
+# model ID or path for anything under the models directory.
+list_model_paths() {
+  [ -d "$LOCAL_LLM_MODELS_DIR" ] || return 0
+  find "$LOCAL_LLM_MODELS_DIR" -type f -iname '*.gguf' -path '*/embedding/*' -print | LC_ALL=C sort
+}
+
+resolve_model() {
+  requested=$1
+  RESOLVED_MODEL_ID=""
+  RESOLVED_MODEL_PATH=""
+  [ -n "$requested" ] || return 1
+
+  exact=$requested
+  case "$exact" in
+    "$LOCAL_LLM_MODELS_DIR"/*) ;;
+    *.gguf) exact="$LOCAL_LLM_MODELS_DIR/$exact" ;;
+    *) exact="$LOCAL_LLM_MODELS_DIR/$exact.gguf" ;;
+  esac
+  if [ -f "$exact" ]; then
+    RESOLVED_MODEL_PATH=$exact
+    RESOLVED_MODEL_ID=$(model_id_from_path "$exact")
+    return 0
+  fi
+
+  requested_stem=${requested%.gguf}
+  matches=0
+  match_file=""
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/local-llm-embed-models.XXXXXX")
+  list_model_paths >"$paths_file"
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    candidate_id=$(model_id_from_path "$candidate")
+    candidate_name=$(basename "$candidate_id")
+    if [ "$candidate_id" = "$requested_stem" ] || [ "$candidate_name" = "$requested_stem" ]; then
+      matches=$((matches + 1))
+      match_file=$candidate
+    fi
+  done <"$paths_file"
+  rm -f "$paths_file"
+
+  [ "$matches" -eq 1 ] || return 1
+  RESOLVED_MODEL_PATH=$match_file
+  RESOLVED_MODEL_ID=$(model_id_from_path "$match_file")
+}
+
+select_initial_model() {
+  candidate=$LOCAL_LLM_EMBED_MODEL
+  if [ -f "$MODEL_STATE_FILE" ]; then
+    saved=$(sed -n '1p' "$MODEL_STATE_FILE" | tr -d '\r\n')
+    [ -n "$saved" ] && candidate=$saved
+  fi
+  if resolve_model "$candidate"; then
+    return 0
+  fi
+  if resolve_model "$LOCAL_LLM_EMBED_MODEL"; then
+    return 0
+  fi
+  first=$(list_model_paths | sed -n '1p')
+  [ -n "$first" ] && resolve_model "$first"
+}
+
+set_model_state() {
+  printf '%s\n' "$1" >"$MODEL_STATE_FILE"
+}
+
+if select_initial_model; then
+  SELECTED_MODEL_ID=$RESOLVED_MODEL_ID
+  MODEL_PATH=$RESOLVED_MODEL_PATH
+else
+  SELECTED_MODEL_ID=$LOCAL_LLM_EMBED_MODEL
+  MODEL_PATH="$LOCAL_LLM_MODELS_DIR/$LOCAL_LLM_EMBED_MODEL.gguf"
+fi
+MODEL_LABEL=$(model_label_from_id "$SELECTED_MODEL_ID")
+
+ready() {
+  curl -fsS --max-time 1 "$1" >/dev/null 2>&1
+}
+
+# Whatever answers on the port reports its model id at /v1/models; llama-server
+# reports its --alias there. Comparing against our alias tells a server we
+# started apart from a stray process that happens to hold the same port.
+server_owner() {
+  curl -fsS --max-time 1 "$server_url/v1/models" 2>/dev/null |
+    grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 |
+    sed -E 's/.*"([^"]*)"$/\1/'
+}
+
+pid_live() {
+  file=$1
+  [ -f "$file" ] || return 1
+  pid=$(cat "$file" 2>/dev/null || true)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+wait_ready() {
+  url=$1
+  attempts=$2
+  count=0
+  while [ "$count" -lt "$attempts" ]; do
+    ready "$url" && return 0
+    count=$((count + 1))
+    sleep 1
+  done
+  return 1
+}
+
+launchd_available() {
+  [ "$(uname -s)" = "Darwin" ] &&
+    command -v launchctl >/dev/null 2>&1 &&
+    [ -f "$PLIST" ]
+}
+
+launch_service() {
+  domain="gui/$(id -u)"
+  attempt=1
+  while [ "$attempt" -le 15 ]; do
+    if ! launchctl print "$domain/$LABEL" >/dev/null 2>&1; then
+      launchctl bootstrap "$domain" "$PLIST" >/dev/null 2>&1 || true
+    fi
+    if launchctl print "$domain/$LABEL" >/dev/null 2>&1 &&
+      launchctl kickstart -k "$domain/$LABEL" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  echo "Could not register and start $LABEL with launchd after 15 attempts" >&2
+  return 1
+}
+
+stop_service() {
+  domain="gui/$(id -u)"
+  if launchctl print "$domain/$LABEL" >/dev/null 2>&1; then
+    launchctl bootout "$domain/$LABEL"
+    echo "$LABEL stopped"
+  else
+    echo "$LABEL is not running"
+  fi
+}
+
+stop_pid() {
+  if ! pid_live "$PID_FILE"; then
+    rm -f "$PID_FILE"
+    echo "Embedding server is not running"
+    return 0
+  fi
+  pid=$(cat "$PID_FILE")
+  kill "$pid"
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Embedding server did not stop cleanly (PID $pid)" >&2
+    return 1
+  fi
+  rm -f "$PID_FILE"
+  echo "Embedding server stopped"
+}
+
+# Safety net for a server neither launchd nor the PID file knows about (a
+# LaunchAgent rewritten by a reinstall, a lost PID file, a hand-started
+# instance). Only acts when the port is answering with our own alias, so it
+# can never take down something else that happens to sit on the port.
+stop_orphan() {
+  ready "$server_url/v1/models" || return 0
+  [ "$(server_owner)" = "$LOCAL_LLM_EMBED_MODEL_ALIAS" ] || return 0
+  command -v lsof >/dev/null 2>&1 || return 0
+  pid=$(lsof -tiTCP:"$LOCAL_LLM_EMBED_PORT" -sTCP:LISTEN 2>/dev/null | head -1)
+  [ -n "$pid" ] || return 0
+  echo "Stopping untracked embedding server (PID $pid)..." >&2
+  kill "$pid" 2>/dev/null || return 0
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 20 ]; do
+    count=$((count + 1))
+    sleep 1
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "Untracked embedding server did not stop cleanly (PID $pid)" >&2
+    return 1
+  fi
+  echo "Untracked embedding server stopped"
+}
+
+# llama-server invocation shared by the launchd path (_serve) and the
+# background-process fallback (start). --embedding turns the generation
+# endpoints off, so this instance can never be mistaken for the chat backend
+# even by a client pointed at the wrong port. No --jinja and no KV cache
+# quantization: neither means anything for a single-pass encoder.
+run_server() {
+  set -- \
+    --model "$MODEL_PATH" \
+    --alias "$LOCAL_LLM_EMBED_MODEL_ALIAS" \
+    --host "$LOCAL_LLM_EMBED_HOST" \
+    --port "$LOCAL_LLM_EMBED_PORT" \
+    --embedding \
+    --ctx-size "$LOCAL_LLM_EMBED_CTX_SIZE" \
+    --threads "$LOCAL_LLM_EMBED_THREADS" \
+    --parallel "$LOCAL_LLM_EMBED_PARALLEL" \
+    --batch-size "$LOCAL_LLM_EMBED_BATCH_SIZE" \
+    --ubatch-size "$LOCAL_LLM_EMBED_UBATCH_SIZE" \
+    --n-gpu-layers "$LOCAL_LLM_EMBED_N_GPU_LAYERS"
+  if [ -n "$LOCAL_LLM_EMBED_POOLING" ]; then
+    set -- "$@" --pooling "$LOCAL_LLM_EMBED_POOLING"
+  fi
+  exec llama-server "$@"
+}
+
+start() {
+  if ready "$server_url/v1/models"; then
+    owner=$(server_owner)
+    if [ "$owner" = "$LOCAL_LLM_EMBED_MODEL_ALIAS" ]; then
+      echo "Embedding server is already ready at $server_url ($SELECTED_MODEL_ID)"
+      return 0
+    fi
+    echo "Port $LOCAL_LLM_EMBED_PORT is already serving something else (model: ${owner:-unknown})." >&2
+    echo "Change LOCAL_LLM_EMBED_PORT in $CONFIG_FILE or stop the other process." >&2
+    return 1
+  fi
+  if ! command -v llama-server >/dev/null 2>&1; then
+    echo "llama-server is not installed. Run: brew install llama.cpp" >&2
+    return 1
+  fi
+  if [ ! -f "$MODEL_PATH" ]; then
+    echo "Embedding model not found: $MODEL_PATH" >&2
+    echo "Download it with: download-local-models bge-m3" >&2
+    return 1
+  fi
+  if launchd_available; then
+    launch_service
+    if ! wait_ready "$server_url/v1/models" 60; then
+      echo "Embedding server did not become ready. See $LOG_FILE" >&2
+      return 1
+    fi
+    echo "Embedding server started at $server_url ($SELECTED_MODEL_ID)"
+    return 0
+  fi
+  rm -f "$PID_FILE"
+  # A subshell so run_server's exec replaces the child, not this script.
+  # Ignoring HUP first does what nohup does for the chat backend: the
+  # disposition survives exec, so closing the terminal that ran `start`
+  # cannot take the server down with it.
+  (trap '' HUP; run_server >"$LOG_FILE" 2>&1) &
+  echo "$!" >"$PID_FILE"
+  if ! wait_ready "$server_url/v1/models" 60; then
+    pid_live "$PID_FILE" && kill "$(cat "$PID_FILE")" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    echo "Embedding server did not become ready. See $LOG_FILE" >&2
+    return 1
+  fi
+  echo "Embedding server started at $server_url ($SELECTED_MODEL_ID)"
+}
+
+stop() {
+  failed=0
+  if launchd_available; then
+    stop_service
+  else
+    stop_pid || failed=1
+  fi
+  stop_orphan || failed=1
+  return "$failed"
+}
+
+status() {
+  failed=0
+  echo "model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
+  echo "model path: $MODEL_PATH"
+  if ready "$server_url/v1/models"; then
+    owner=$(server_owner)
+    if [ "$owner" = "$LOCAL_LLM_EMBED_MODEL_ALIAS" ]; then
+      echo "embedding server: ready ($server_url)"
+    else
+      echo "embedding server: port occupied by something else (model: ${owner:-unknown})"
+      failed=1
+    fi
+  else
+    echo "embedding server: stopped"
+    failed=1
+  fi
+  echo "endpoint: $server_url/v1/embeddings"
+  return "$failed"
+}
+
+doctor() {
+  failed=0
+  for command in python3 curl find llama-server; do
+    if command -v "$command" >/dev/null 2>&1; then
+      echo "$command: $(command -v "$command")"
+    else
+      echo "$command: missing"
+      failed=1
+    fi
+  done
+  if command -v llama-server >/dev/null 2>&1; then
+    if llama-server --help 2>&1 | grep -q -- '--embedding'; then
+      echo "llama-server embedding support: yes"
+    else
+      echo "llama-server embedding support: missing (upgrade llama.cpp)"
+      failed=1
+    fi
+  fi
+  echo "models directory: $LOCAL_LLM_MODELS_DIR"
+  echo "selected model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
+  if [ -f "$MODEL_PATH" ]; then
+    echo "selected model file: $MODEL_PATH"
+  else
+    echo "selected model file: missing ($MODEL_PATH)"
+    failed=1
+  fi
+  echo "pooling: ${LOCAL_LLM_EMBED_POOLING:-model default}"
+  echo "context / batch / ubatch: $LOCAL_LLM_EMBED_CTX_SIZE / $LOCAL_LLM_EMBED_BATCH_SIZE / $LOCAL_LLM_EMBED_UBATCH_SIZE"
+  if [ "$LOCAL_LLM_EMBED_UBATCH_SIZE" -lt "$LOCAL_LLM_EMBED_CTX_SIZE" ] 2>/dev/null; then
+    echo "warning: ubatch is smaller than the context; inputs longer than $LOCAL_LLM_EMBED_UBATCH_SIZE tokens will be rejected"
+  fi
+  if launchd_available; then
+    echo "service manager: launchd"
+  else
+    echo "service manager: background-process fallback"
+  fi
+  return "$failed"
+}
+
+# One-off embedding of a string, for smoke tests and quick checks. Starts the
+# server first if needed, the way `local-llm ask` does. Reads stdin when no
+# text is given and stdin is not a terminal, so files can be piped in.
+embed() {
+  raw=0
+  if [ "${1:-}" = "--raw" ]; then
+    raw=1
+    shift
+  fi
+  if [ "$#" -gt 0 ]; then
+    text="$*"
+  elif [ ! -t 0 ]; then
+    text=$(cat)
+  else
+    text=""
+  fi
+  if [ -z "$text" ]; then
+    echo "Usage: local-llm-embed embed [--raw] TEXT" >&2
+    echo "       echo TEXT | local-llm-embed embed [--raw]" >&2
+    return 2
+  fi
+  start >&2
+  payload=$(python3 -c '
+import json, sys
+print(json.dumps({"model": sys.argv[1], "input": sys.argv[2]}))
+' "$LOCAL_LLM_EMBED_MODEL_ALIAS" "$text")
+  response=$(curl -fsS "$server_url/v1/embeddings" \
+    -H 'Content-Type: application/json' \
+    -d "$payload")
+  printf '%s' "$response" | python3 -c '
+import json, sys
+raw = sys.argv[1] == "1"
+body = json.load(sys.stdin)
+vector = body["data"][0]["embedding"]
+if raw:
+    print(json.dumps(vector))
+    sys.exit(0)
+tokens = body.get("usage", {}).get("prompt_tokens")
+# No f-strings with nested quotes here: this program is wrapped in shell
+# single quotes, and backslash-escaped quotes inside an f-string expression
+# are a SyntaxError.
+print("model: " + str(body.get("model", "?")))
+print("dimensions: %d" % len(vector))
+if tokens is not None:
+    print("tokens: %d" % tokens)
+head = ", ".join("%.5f" % v for v in vector[:8])
+print("first 8: [" + head + ", ...]")
+' "$raw"
+}
+
+model_list() {
+  format=${1:-human}
+  found=0
+  paths_file=$(mktemp "${TMPDIR:-/tmp}/local-llm-embed-models.XXXXXX")
+  list_model_paths >"$paths_file"
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    found=1
+    id=$(model_id_from_path "$path")
+    selected=0
+    [ "$id" = "$SELECTED_MODEL_ID" ] && selected=1
+    if [ "$format" = "--porcelain" ]; then
+      printf '%s\t%s\t%s\n' "$selected" "$id" "$path"
+    else
+      marker=" "
+      [ "$selected" -eq 1 ] && marker="*"
+      printf '%s %s\n  path: %s\n' "$marker" "$id" "$path"
+    fi
+  done <"$paths_file"
+  rm -f "$paths_file"
+  if [ "$found" -eq 0 ]; then
+    echo "No embedding GGUF models found under $LOCAL_LLM_MODELS_DIR/*/embedding/" >&2
+    echo "Download one with: download-local-models bge-m3" >&2
+    return 1
+  fi
+}
+
+usage() {
+  echo "Usage: local-llm-embed {start|stop|restart|status|doctor|endpoint|logs|embed [--raw] TEXT|model {list [--porcelain]|status|use MODEL}}" >&2
+}
+
+case "${1:-}" in
+  start) start ;;
+  stop) stop ;;
+  restart)
+    "$0" stop || true
+    "$0" start
+    ;;
+  status) status ;;
+  doctor) doctor ;;
+  endpoint) echo "$server_url" ;;
+  logs) echo "Embedding server log: $LOG_FILE" ;;
+  embed) shift; embed "$@" ;;
+  model)
+    case "${2:-status}" in
+      list) model_list "${3:-human}" ;;
+      status)
+        echo "$SELECTED_MODEL_ID"
+        echo "$MODEL_LABEL"
+        echo "$MODEL_PATH"
+        ;;
+      use)
+        requested=${3:-}
+        if ! resolve_model "$requested"; then
+          echo "Unknown or ambiguous embedding model: $requested" >&2
+          echo "Use 'local-llm-embed model list' to see available model IDs." >&2
+          exit 2
+        fi
+        requested_id=$RESOLVED_MODEL_ID
+        previous_id=$SELECTED_MODEL_ID
+        if [ "$requested_id" = "$SELECTED_MODEL_ID" ] && ready "$server_url/v1/models" &&
+          [ "$(server_owner)" = "$LOCAL_LLM_EMBED_MODEL_ALIAS" ]; then
+          set_model_state "$requested_id"
+          echo "Embedding model $requested_id is already selected and running"
+          exit 0
+        fi
+        set_model_state "$requested_id"
+        echo "Selected embedding model: $requested_id"
+        "$0" stop || true
+        if "$0" start; then
+          exit 0
+        fi
+        echo "Embedding model failed to start; restoring $previous_id" >&2
+        set_model_state "$previous_id"
+        "$0" start || true
+        exit 1
+        ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  _serve) run_server ;;
+  *) usage; exit 2 ;;
+esac
