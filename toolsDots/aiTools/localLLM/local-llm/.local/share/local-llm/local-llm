@@ -52,6 +52,10 @@ fi
 : "${LOCAL_LLM_WRAPPER_USE_JSON_SCHEMA:=1}"
 : "${LOCAL_LLM_WRAPPER_DISABLE_THINKING:=1}"
 : "${LOCAL_LLM_WRAPPER_LOG_LEVEL:=INFO}"
+# Whether `local-llm start`, `stop`, `restart`, and `status` also act on the
+# embedding server managed by local-llm-embed. `model use` and `provider use`
+# never touch it either way: they swap the chat side only.
+: "${LOCAL_LLM_MANAGE_EMBED:=1}"
 
 backend_url="http://$LOCAL_LLM_BACKEND_HOST:$LOCAL_LLM_BACKEND_PORT"
 wrapper_url="http://$LOCAL_LLM_WRAPPER_HOST:$LOCAL_LLM_WRAPPER_PORT"
@@ -407,6 +411,64 @@ start() {
   fi
 }
 
+# Stops the chat side only (wrapper, then backend). The user-facing `stop`
+# adds the embedding server; `_stop-chat` is this alone, for the internal
+# re-execs in `model use` and `provider use`.
+stop_chat() {
+  if launchd_available; then
+    stop_service "$WRAPPER_LABEL"
+    stop_service "$BACKEND_LABEL"
+  else
+    stop_pid "Tool wrapper" "$WRAPPER_PID_FILE"
+    stop_pid "Local LLM backend" "$BACKEND_PID_FILE"
+  fi
+}
+
+# --- embedding server -------------------------------------------------------
+# The user-facing start/stop/restart/status also drive local-llm-embed, so
+# one command handles the whole stack. This is deliberately not inside
+# start() or stop_chat(): ask() and chat() only need the chat backend, and
+# `model use`/`provider use` re-exec `_start-chat`/`_stop-chat` so swapping
+# the chat model can neither take the embedding server down nor mistake a
+# failing embedding server for a broken chat model and roll back.
+
+manage_embed() {
+  case "$LOCAL_LLM_MANAGE_EMBED" in
+    0 | off | false | no) return 1 ;;
+  esac
+  [ -x "$INSTALL_ROOT/local-llm-embed" ]
+}
+
+# Two failure modes, reported differently. No embedding model on disk is a
+# warning and `start` still succeeds: the chat backend is fine, and a fresh
+# machine that never downloaded bge-m3 should not see `local-llm start` fail
+# because of an optional component. A model that exists but does not come up
+# is an error and `start` exits non-zero, since that is something broken
+# rather than something absent.
+start_embed() {
+  manage_embed || return 0
+  embed="$INSTALL_ROOT/local-llm-embed"
+  if ! "$embed" model check >/dev/null; then
+    echo "Warning: embedding server not started; the chat backend is unaffected." >&2
+    echo "         Set LOCAL_LLM_MANAGE_EMBED=\"0\" in $CONFIG_FILE to leave it out of local-llm start/stop/status." >&2
+    return 0
+  fi
+  if ! "$embed" start; then
+    echo "Error: embedding server failed to start; the chat backend is unaffected. See: local-llm-embed logs" >&2
+    return 1
+  fi
+}
+
+stop_embed() {
+  manage_embed || return 0
+  "$INSTALL_ROOT/local-llm-embed" stop
+}
+
+status_embed() {
+  manage_embed || return 0
+  "$INSTALL_ROOT/local-llm-embed" status
+}
+
 status() {
   failed=0
   echo "provider: llama"
@@ -653,7 +715,7 @@ model_list() {
 
 usage() {
   echo "Usage: local-llm {start|stop|restart|status|doctor|endpoint|logs|ask QUESTION|chat [--new|--continue]|embed ...|provider {status|use {llama|turbo}}|wrapper {on|off|toggle|status}|model {list [--porcelain]|status|use MODEL}}" >&2
-  echo "       local-llm embed ... forwards to local-llm-embed (the embedding server has its own lifecycle)" >&2
+  echo "       start/stop/restart/status also cover the embedding server; local-llm embed ... forwards anything else to local-llm-embed" >&2
 }
 
 # When the active provider is turbo, every command except "provider" itself
@@ -667,7 +729,39 @@ case "${1:-}" in
     if [ "$(active_provider)" = "turbo" ]; then
       require_turbo_fieldfare || exit 1
       case "${1:-}" in
-        start | stop | restart | status | endpoint | logs | doctor | ask | chat)
+        start)
+          echo "provider: turbo" >&2
+          turbo-fieldfare start
+          start_embed
+          exit 0
+          ;;
+        stop)
+          echo "provider: turbo" >&2
+          failed=0
+          turbo-fieldfare stop || failed=1
+          stop_embed || failed=1
+          exit "$failed"
+          ;;
+        restart)
+          "$0" stop || true
+          exec "$0" start
+          ;;
+        status)
+          echo "provider: turbo" >&2
+          failed=0
+          turbo-fieldfare status || failed=1
+          status_embed || failed=1
+          exit "$failed"
+          ;;
+        _start-chat)
+          echo "provider: turbo" >&2
+          exec turbo-fieldfare start
+          ;;
+        _stop-chat)
+          echo "provider: turbo" >&2
+          exec turbo-fieldfare stop
+          ;;
+        endpoint | logs | doctor | ask | chat)
           echo "provider: turbo" >&2
           exec turbo-fieldfare "$@"
           ;;
@@ -691,21 +785,30 @@ case "${1:-}" in
 esac
 
 case "${1:-}" in
-  start) start ;;
+  start)
+    start
+    start_embed
+    ;;
   stop)
-    if launchd_available; then
-      stop_service "$WRAPPER_LABEL"
-      stop_service "$BACKEND_LABEL"
-    else
-      stop_pid "Tool wrapper" "$WRAPPER_PID_FILE"
-      stop_pid "Local LLM backend" "$BACKEND_PID_FILE"
-    fi
+    failed=0
+    stop_chat || failed=1
+    stop_embed || failed=1
+    exit "$failed"
     ;;
   restart)
     "$0" stop || true
     "$0" start
     ;;
-  status) status ;;
+  status)
+    failed=0
+    status || failed=1
+    status_embed || failed=1
+    exit "$failed"
+    ;;
+  # Chat side only (backend + wrapper), for the internal re-execs in
+  # `model use` and `provider use` that must leave the embedding server alone.
+  _start-chat) start ;;
+  _stop-chat) stop_chat ;;
   doctor) doctor ;;
   endpoint)
     if wrapper_enabled; then
@@ -754,12 +857,12 @@ case "${1:-}" in
           if ready "$backend_url/v1/models"; then
             was_running=1
           fi
-          "$0" stop || true
+          "$0" _stop-chat || true
         fi
         set_provider_state "$target"
         echo "Provider set to $target"
         if [ "$was_running" -eq 1 ]; then
-          "$0" start
+          "$0" _start-chat
         fi
         ;;
       *)
@@ -823,14 +926,14 @@ case "${1:-}" in
           fi
           exit 0
         fi
-        "$0" stop || true
-        if "$0" start; then
+        "$0" _stop-chat || true
+        if "$0" _start-chat; then
           exit 0
         fi
         echo "Model failed to start; restoring $previous_id" >&2
         set_model_state "$previous_id"
         set_wrapper_state "$previous_wrapper_state"
-        "$0" start || true
+        "$0" _start-chat || true
         exit 1
         ;;
       *) usage; exit 2 ;;

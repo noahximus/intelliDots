@@ -230,9 +230,11 @@ local-llm
 `local-llm-embed` runs a second `llama-server` dedicated to embeddings. It
 is a separate process with its own port (8082), PID file, LaunchAgent
 (`local.local-llm.embed`), log (`~/Library/Logs/local-llm/embed-server.log`),
-and selected-model state (`~/.config/local-llm/selected-embed-model`). None
-of the `local-llm` commands touch it, and it does not care which chat
-provider (llama or TurboFieldfare) is active.
+and selected-model state (`~/.config/local-llm/selected-embed-model`).
+`local-llm start`, `stop`, `restart`, and `status` also act on it (turn that
+off with `LOCAL_LLM_MANAGE_EMBED="0"`), while `local-llm model use` and
+`provider use` only swap the chat side and leave it running. It does not
+care which chat provider (llama or TurboFieldfare) is active.
 
 ```sh
 local-llm-embed start
@@ -240,11 +242,18 @@ local-llm-embed status
 local-llm-embed embed "The quick brown fox"
 local-llm-embed embed --raw "The quick brown fox" > vector.json
 local-llm-embed model list
+local-llm-embed model check          # is there a loadable embedding model? exit 1 with the fix if not
 local-llm-embed model use baai/embedding/bge-m3-Q8_0
 local-llm-embed stop
 ```
 
 `local-llm embed ...` is a passthrough to the same script.
+
+When `local-llm start` brings the embedding server up, it runs `model check`
+first. No embedding model on disk is reported as a warning and `local-llm
+start` still succeeds, since the chat backend is fine without it. A model
+that exists but fails to start is reported as an error and `local-llm start`
+exits non-zero.
 
 `model list` shows GGUFs stored under any `*/embedding/` folder, matching
 how the catalog lays models out. To use an embedding model stored somewhere
@@ -293,6 +302,7 @@ LOCAL_LLM_EMBED_PORT="8082"
 LOCAL_LLM_EMBED_CTX_SIZE="8192"
 LOCAL_LLM_EMBED_THREADS="4"
 LOCAL_LLM_EMBED_POOLING=""
+LOCAL_LLM_MANAGE_EMBED="1"
 ```
 
 After changing config, restart:

@@ -8,7 +8,10 @@
 # to turbo-fieldfare -- while the embedding server has to stay up across all
 # of that. Own port, own PID file, own LaunchAgent; the helpers below are
 # copied from local-llm instead of shared, the same way turbo-fieldfare does
-# it, so neither script can break the other.
+# it, so neither script can break the other. The one coupling is optional
+# and lives entirely in local-llm: its start/stop/restart/status call the
+# same commands here unless LOCAL_LLM_MANAGE_EMBED=0, while its `model use`
+# and `provider use` never touch this server.
 
 set -eu
 
@@ -260,6 +263,27 @@ stop_orphan() {
   echo "Untracked embedding server stopped"
 }
 
+# Is there an embedding model we can actually load? Exit 0 with a one-line
+# summary on stdout, or exit 1 with the diagnosis on stderr. select_initial_model
+# already fell back through the saved selection, the configured default, and
+# the first GGUF under any */embedding/ folder, so a missing MODEL_PATH here
+# means there is nothing usable on disk at all. Used by `local-llm start` to
+# decide between "warn and skip" and "try to start".
+model_check() {
+  if [ -f "$MODEL_PATH" ]; then
+    echo "embedding model: $SELECTED_MODEL_ID ($MODEL_PATH)"
+    return 0
+  fi
+  echo "No embedding model is available." >&2
+  echo "  configured: $LOCAL_LLM_EMBED_MODEL  (LOCAL_LLM_EMBED_MODEL in $CONFIG_FILE)" >&2
+  if [ -s "$MODEL_STATE_FILE" ]; then
+    echo "  selected:   $(sed -n '1p' "$MODEL_STATE_FILE" | tr -d '\r\n')  ($MODEL_STATE_FILE)" >&2
+  fi
+  echo "  looked in:  $LOCAL_LLM_MODELS_DIR/*/embedding/*.gguf" >&2
+  echo "Download the default with: download-local-models bge-m3" >&2
+  return 1
+}
+
 # llama-server invocation shared by the launchd path (_serve) and the
 # background-process fallback (start). --embedding turns the generation
 # endpoints off, so this instance can never be mistaken for the chat backend
@@ -299,11 +323,7 @@ start() {
     echo "llama-server is not installed. Run: brew install llama.cpp" >&2
     return 1
   fi
-  if [ ! -f "$MODEL_PATH" ]; then
-    echo "Embedding model not found: $MODEL_PATH" >&2
-    echo "Download it with: download-local-models bge-m3" >&2
-    return 1
-  fi
+  model_check >/dev/null || return 1
   if launchd_available; then
     launch_service
     if ! wait_ready "$server_url/v1/models" 60; then
@@ -340,10 +360,12 @@ stop() {
   return "$failed"
 }
 
+# Labels carry the "embedding" prefix because `local-llm status` appends this
+# output verbatim below its own model/backend/wrapper lines.
 status() {
   failed=0
-  echo "model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
-  echo "model path: $MODEL_PATH"
+  echo "embedding model: $SELECTED_MODEL_ID ($MODEL_LABEL)"
+  echo "embedding model path: $MODEL_PATH"
   if ready "$server_url/v1/models"; then
     owner=$(server_owner)
     if [ "$owner" = "$LOCAL_LLM_EMBED_MODEL_ALIAS" ]; then
@@ -356,7 +378,7 @@ status() {
     echo "embedding server: stopped"
     failed=1
   fi
-  echo "endpoint: $server_url/v1/embeddings"
+  echo "embedding endpoint: $server_url/v1/embeddings"
   return "$failed"
 }
 
@@ -477,7 +499,7 @@ model_list() {
 }
 
 usage() {
-  echo "Usage: local-llm-embed {start|stop|restart|status|doctor|endpoint|logs|embed [--raw] TEXT|model {list [--porcelain]|status|use MODEL}}" >&2
+  echo "Usage: local-llm-embed {start|stop|restart|status|doctor|endpoint|logs|embed [--raw] TEXT|model {list [--porcelain]|status|check|use MODEL}}" >&2
 }
 
 case "${1:-}" in
@@ -500,6 +522,7 @@ case "${1:-}" in
         echo "$MODEL_LABEL"
         echo "$MODEL_PATH"
         ;;
+      check) model_check ;;
       use)
         requested=${3:-}
         if ! resolve_model "$requested"; then

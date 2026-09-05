@@ -94,14 +94,20 @@ local-llm-embed embed "some text"     # smoke test: prints dimensions and the fi
 local-llm-embed embed --raw "text"    # the full vector as a JSON array
 local-llm-embed endpoint              # http://127.0.0.1:8082
 local-llm-embed model list            # GGUFs under any */embedding/ folder
+local-llm-embed model check           # exit 1 with download instructions if none is loadable
 local-llm-embed model use MODEL
 local-llm-embed stop
 ```
 
 `local-llm embed ...` forwards to the same script, so either spelling
-works. The lifecycles are deliberately independent: `local-llm stop`,
-`local-llm model use`, and `local-llm provider use` never touch the
-embedding server, and `local-llm-embed stop` never touches the chat backend.
+works. `local-llm start`, `stop`, `restart`, and `status` also act on the
+embedding server, so one command handles the whole stack; set
+`LOCAL_LLM_MANAGE_EMBED=0` in `stack.env` to keep them separate. If no
+embedding model is on disk, `local-llm start` warns and still succeeds; if
+the model is there but the server fails to come up, it reports an error and
+exits non-zero. `local-llm model use` and `local-llm provider use` only swap
+the chat side and never touch the embedding server, and `local-llm-embed`
+never touches the chat backend.
 Settings live in the same `stack.env` under `LOCAL_LLM_EMBED_*`; see
 `RUNTIME_GUIDE.md` for the details, including why the batch sizes track the
 context size.
