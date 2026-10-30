@@ -361,3 +361,37 @@ reload() {
 
   echo "✅ Reload complete! Open a new shell to fully apply changes."
 }
+
+clean_ds_store() {
+  python3 - <<'PY'
+import os
+import fnmatch
+
+deleted = failed = total_bytes = 0
+
+def report_error(error):
+    global failed
+    failed += 1
+    print(f"ERROR: {error}")
+
+for folder, _, files in os.walk(".", onerror=report_error):
+    for name in files:
+        if not fnmatch.fnmatch(name, "*.DS_Store"):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            size = os.stat(path).st_size
+            os.unlink(path)
+            deleted += 1
+            total_bytes += size
+            print(f"Deleted: {path}")
+        except OSError as error:
+            report_error(error)
+
+print(f"\nDeleted: {deleted:,} files")
+print(f"Deleted file size: {total_bytes:,} bytes ({total_bytes / 1024 / 1024:.2f} MiB)")
+print(f"Errors: {failed:,}")
+PY
+}
