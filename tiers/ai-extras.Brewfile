@@ -2,7 +2,7 @@
 #
 # The distinction against ai-local is integration, not where the model runs.
 # ai-local is the stack this repository actually builds on: llama.cpp, the
-# local-llm wrapper, its two LaunchAgents, and the CodeCompanion Neovim
+# local-llm wrapper, its three LaunchAgents, and the CodeCompanion Neovim
 # integration that points at it. Anything in ai-extras stands alone -- useful
 # on its own terms, but nothing in these dotfiles depends on it and nothing
 # breaks when it is absent.

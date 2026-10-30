@@ -2,7 +2,7 @@
 # else's.
 #
 # Split out of ai-extras because it is a different commitment: the localLLM
-# node that comes with this tier stows the local-llm wrapper, writes two
+# node that comes with this tier stows the local-llm wrapper, writes three
 # (disabled) LaunchAgents, and enables the CodeCompanion Neovim integration.
 # None of that has anything to do with the cloud assistants in ai-extras, and
 # there are machines that want one and not the other.
