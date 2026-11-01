@@ -376,7 +376,7 @@ def report_error(error):
 
 for folder, _, files in os.walk(".", onerror=report_error):
     for name in files:
-        if not fnmatch.fnmatch(name, "*.DS_Store"):
+        if not (fnmatch.fnmatch(name, "*.DS_Store") or name == "desktop.ini"):
             continue
         path = os.path.join(folder, name)
         try:
