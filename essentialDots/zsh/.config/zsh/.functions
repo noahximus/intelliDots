@@ -362,7 +362,7 @@ reload() {
   echo "✅ Reload complete! Open a new shell to fully apply changes."
 }
 
-clean_ds_store() {
+clean_os_metadata() {
   python3 - <<'PY'
 import os
 import fnmatch
@@ -376,7 +376,11 @@ def report_error(error):
 
 for folder, _, files in os.walk(".", onerror=report_error):
     for name in files:
-        if not (fnmatch.fnmatch(name, "*.DS_Store") or name == "desktop.ini"):
+        lower_name = name.lower()
+        if not (
+            fnmatch.fnmatch(lower_name, "*.ds_store")
+            or lower_name in {"desktop.ini", "thumbs.db", "ehthumbs.db"}
+        ):
             continue
         path = os.path.join(folder, name)
         try:
