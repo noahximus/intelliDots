@@ -395,3 +395,31 @@ print(f"Deleted file size: {total_bytes:,} bytes ({total_bytes / 1024 / 1024:.2f
 print(f"Errors: {failed:,}")
 PY
 }
+
+clean_empty_folders() {
+  python3 - <<'PY'
+import os
+import errno
+
+deleted = failed = 0
+
+def report_error(error):
+    global failed
+    failed += 1
+    print(f"ERROR: {error}")
+
+for folder, _, _ in os.walk(".", topdown=False, onerror=report_error):
+    if folder == "." or os.path.islink(folder):
+        continue
+    try:
+        os.rmdir(folder)
+        deleted += 1
+        print(f"Deleted: {folder}")
+    except OSError as error:
+        if error.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+            report_error(error)
+
+print(f"\nDeleted: {deleted:,} empty folders")
+print(f"Errors: {failed:,}")
+PY
+}
