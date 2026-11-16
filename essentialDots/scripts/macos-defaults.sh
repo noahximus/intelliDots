@@ -75,6 +75,7 @@ This will apply your personal macOS UI preferences:
   - Screenshot save location.
   - Menu bar / Control Center visibility preferences.
   - Ice update handling left to Homebrew rather than Sparkle.
+  - Parallels Desktop automatic update checks disabled.
   - TG Pro monitoring, on a Mac with fans that has TG Pro installed.
 
 EOF
@@ -198,6 +199,14 @@ if [[ -d "/Applications/Ice.app" ]]; then
   run defaults write "${ice_domain}" SUAutomaticallyUpdate -bool false
 else
   echo "Skipping Ice settings: Ice is not installed."
+fi
+
+# Parallels Desktop: disable automatic update checks.
+# Quit and reopen Parallels Desktop after applying this preference.
+if [[ -d "/Applications/Parallels Desktop.app" ]]; then
+  run defaults write 'com.parallels.Parallels Desktop' 'Application preferences.Check for updates' -int 0
+else
+  echo "Skipping Parallels Desktop settings: Parallels Desktop is not installed."
 fi
 
 # TG Pro: monitor the highest CPU temperature while macOS controls the fans.
